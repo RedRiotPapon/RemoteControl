@@ -628,4 +628,11 @@ body {
 .profile-controls p { margin-top: 10px; line-height: 1.5; }
 .profile-controls [hidden] { display: none; }
 .screen { min-height: 0; }
+.share-card { margin: 0 auto 20px; max-width: 1200px; border-color: #3b82f6; gap: 10px; }
+.share-card h2 { font-size: 20px; }
+.share-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.share-card .invitation-section { font-size: 13px; line-height: 1.5; }
+.share-card .invitation-code-box { gap: 12px; align-items: flex-start; }
+.share-card .invitation-code-box code { flex: 1; min-width: 0; max-height: 64px; overflow-y: auto; font-size: 12px; }
+.share-card #btn-copy-code { flex-shrink: 0; }
 .profile-picker select:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }

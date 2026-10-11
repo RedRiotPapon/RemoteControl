@@ -53,6 +53,22 @@
 
     <!-- Main Dashboard Screen -->
     <section id="screen-dashboard" class="screen">
+      <div class="card share-card" aria-labelledby="share-title">
+        <h2 id="share-title">Invite a client</h2>
+        <p id="invite-help" class="text-small text-muted" role="status">Choose a browser profile below, then start the browser to create an invitation.</p>
+        <div class="share-actions">
+          <button id="btn-start-browser" class="btn btn-primary">1. Start Browser</button>
+          <button id="btn-generate-invite" class="btn btn-secondary" disabled aria-describedby="invite-help">2. Generate Invitation</button>
+        </div>
+        <div id="invitation-section" class="invitation-section" style="display:none">
+          <p>Send this code to your client. They paste it into the ParallelBrowser Client app and click Connect.</p>
+          <div class="invitation-code-box">
+            <code id="invitation-code" tabindex="0" aria-label="Invitation code"></code>
+            <button id="btn-copy-code" class="btn btn-primary">Copy invitation</button>
+          </div>
+          <p class="text-small text-muted">You must approve their connection. Host address: <span id="tailscale-ip">—</span></p>
+        </div>
+      </div>
       <div class="workspace-intro">
         <div><span class="eyebrow">HOST WORKSPACE</span><h2>Share a browser. Keep your desktop.</h2>
         <p>Start the workspace, share an invitation, then approve your client.</p></div>
@@ -93,7 +109,6 @@
             </div>
           </div>
           <div class="card-actions">
-            <button id="btn-start-browser" class="btn btn-primary">Start Browser</button>
             <button id="btn-stop-browser" class="btn btn-danger" disabled>Stop Browser</button>
           </div>
         </div>
@@ -105,19 +120,6 @@
             <span id="client-badge" class="badge badge-idle">No Client</span>
           </div>
           <div class="card-body">
-            <div id="invitation-section" class="invitation-section" style="display:none">
-              <p>Share this invitation code with the client:</p>
-              <div class="invitation-code-box">
-                <code id="invitation-code"></code>
-                <button id="btn-copy-code" class="btn-icon" title="Copy">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2"/>
-                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-                  </svg>
-                </button>
-              </div>
-              <p class="text-small text-muted">Host address: <span id="tailscale-ip">—</span></p>
-            </div>
             <div id="approval-section" class="approval-section" style="display:none">
               <div class="approval-alert">
                 <p>🔔 <strong id="pending-client-name">A client</strong> is requesting access</p>
@@ -137,7 +139,6 @@
             </div>
           </div>
           <div class="card-actions">
-            <button id="btn-generate-invite" class="btn btn-secondary" disabled>Generate Invitation</button>
             <button id="btn-disconnect-client" class="btn btn-danger" disabled>Disconnect Client</button>
           </div>
         </div>

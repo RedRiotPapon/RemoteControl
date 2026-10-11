@@ -25,6 +25,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('btn-start-browser').disabled = busy || transitioning || active || !ready;
     $('btn-stop-browser').disabled = busy || transitioning || (!active && !(info.status === 'error' && info.containerName));
     $('btn-generate-invite').disabled = busy || info.status !== 'running' || info.hostSetupRequired;
+    $('invite-help').textContent = info.status === 'starting' ? 'Preparing the browser. Your invitation will be available when it is ready.'
+      : info.hostSetupRequired ? 'Finish private setup and sign in yourself before generating an invitation.'
+      : info.status === 'client_pending' ? 'Your client is waiting. Review their request in Client Connection below.'
+      : info.status === 'client_connected' ? 'Your client is connected. Stop the session when you are finished.'
+      : info.status === 'running' ? 'Generate an invitation, copy it and send it to your client. You approve them after they connect.'
+      : info.status === 'stopping' ? 'Stopping the browser and removing its temporary data.'
+      : 'Choose a browser profile below, then click “1. Start Browser”. An invitation is available after the browser starts.';
     $('chrome-profile').disabled = busy || transitioning || active;
     $('btn-refresh-profiles').disabled = busy || transitioning || active;
     $('host-setup-section').hidden = !active;
@@ -113,6 +120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('invitation-code').textContent = result.invitation;
     $('tailscale-ip').textContent = result.hostIp;
     $('invitation-section').style.display = 'flex';
+    $('invitation-section').scrollIntoView({ block: 'nearest' });
     notice('Invitation ready. It expires in 60 minutes and works for one approved connection.');
   }));
   $('btn-copy-code').addEventListener('click', async () => {
@@ -171,6 +179,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('approval-section').style.display = 'block';
     $('client-badge').textContent = 'Approval needed';
     $('client-badge').className = 'badge badge-starting';
+    $('approval-section').scrollIntoView({ block: 'nearest' });
   });
   window.hostAPI.onClientConnected(info => {
     $('connected-client-name').textContent = info.clientName;

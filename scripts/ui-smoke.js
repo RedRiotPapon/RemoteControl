@@ -23,6 +23,16 @@ fs.mkdirSync(out, { recursive: true });
     await hp.screenshot({ path: path.join(out, 'host-system-check-mock.png') });
     await hp.locator('#btn-recheck').click();
     await hp.locator('#btn-continue-setup:not([disabled])').click();
+    await host.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 550));
+    for (const id of ['btn-start-browser', 'btn-generate-invite']) {
+      assert.ok(await hp.locator('#' + id).evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= innerHeight;
+      }), id + ' must be visible without scrolling at the minimum window size');
+    }
+    assert.equal(await hp.locator('#btn-generate-invite').isDisabled(), true);
+    assert.match(await hp.locator('#invite-help').textContent(), /Start Browser/);
+    await hp.locator('.share-card').screenshot({ path: path.join(out, 'host-invite-idle.png') });
     await hp.locator('#btn-settings').click();
     await hp.locator('#setting-width').fill('1280');
     await hp.locator('#setting-height').fill('720');
@@ -36,6 +46,11 @@ fs.mkdirSync(out, { recursive: true });
     await hp.locator('#btn-generate-invite').click();
     await hp.locator('#invitation-section').waitFor({ state: 'visible' });
     const code = await hp.locator('#invitation-code').textContent();
+    await hp.locator('#btn-copy-code').click();
+    assert.equal(await host.evaluate(({ clipboard }) => clipboard.readText()), code);
+    assert.ok(await hp.locator('#btn-copy-code').evaluate(element => {
+      const rect = element.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight;
+    }), 'Copy invitation must be visible after generation');
     await hp.screenshot({ path: path.join(out, 'host-ready.png') });
     const client = await electron.launch({ executablePath: require(path.join(root, 'client-app/node_modules/electron')),
       args: [path.join(root, real ? 'scripts/qa-client.cjs' : 'client-app/dist/main/index.js')], env }); apps.push(client);

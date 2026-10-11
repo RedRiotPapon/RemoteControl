@@ -88,7 +88,7 @@ npm run start:client
 2. Click **Start Browser**. For a profile, review the native permission dialog and select **Allow temporary copy**. Cancelling does not copy the profile.
 3. For a selected profile, open **Private setup** and sign into the required Google account or websites yourself. Only bookmarks and basic settings are imported automatically; existing cookies, passwords, history, autofill and extensions are excluded.
 4. Return to the Host app, click **I've finished setup**, and confirm **Ready for client**. Merely closing the setup window does not enable invitations. Fresh browsers may also be prepared privately.
-5. Generate an invitation and send the complete code to the intended client. It expires after 60 minutes and is consumed after one approved connection.
+5. In **Invite a client** at the top, click **2. Generate Invitation**, then **Copy invitation** and send the complete code to the intended client. It expires after 60 minutes and is consumed after one approved connection. This is a code to paste into the Client app, not a clickable join link. While the session is **Idle**, start the browser first; while private setup is required, finish that first.
 6. On the client PC, enter a name, paste the invitation and select **Connect**. The host must approve the connection before the browser appears. The client can then use the host-prepared signed-in websites without receiving the host's password.
 7. Continue using the host desktop normally. Client input affects the isolated browser display. Installed Windows programs and the original running Chrome window are not shared.
 

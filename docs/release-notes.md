@@ -1,4 +1,8 @@
-# ParallelBrowser 1.0.0
+# ParallelBrowser 1.0.1
+
+The Host now puts **Start Browser**, **Generate Invitation** and **Copy invitation** at the top of its dashboard. Instructions explain why invitations are disabled while idle, starting or waiting for private setup. The controls fit without scrolling at the minimum 700 × 550 window size. When a client requests access, the Host scrolls their approval request into view.
+
+Invitations are codes to paste into the Client app, not clickable join links. Choose a profile if needed, start the browser, finish any required private setup, then generate and copy the invitation. This update keeps the same client connection protocol.
 
 ## Which file to download
 
