@@ -41,7 +41,8 @@ fs.mkdirSync(out, { recursive: true });
       args: [path.join(root, real ? 'scripts/qa-client.cjs' : 'client-app/dist/main/index.js')], env }); apps.push(client);
     if (real) client.process().stdout.on('data', data => console.log(data.toString().replace(/access=[a-f0-9]+/g, 'access=REDACTED')));
     const cp = await client.firstWindow(); cp.on('pageerror', error => errors.push('client: ' + error.message));
-    await cp.screenshot({ path: path.join(out, 'client-connect.png') });
+    // Capture only after connection: a CDP capture of the initial Electron webview
+    // can stall its replacement. Portable QA separately verifies the connect form.
     await cp.locator('#input-name').fill('UI smoke test');
     await cp.locator('#input-code').fill(code);
     await cp.locator('#btn-connect').click();
@@ -49,8 +50,8 @@ fs.mkdirSync(out, { recursive: true });
     await hp.screenshot({ path: path.join(out, 'host-approval.png') });
     await hp.locator('#btn-approve').click();
     await cp.locator('#screen-browser.active').waitFor();
-    await cp.screenshot({ path: path.join(out, 'client-workspace-loading.png') });
     await cp.waitForFunction(() => document.getElementById('toolbar-status').textContent === 'Workspace connected');
+    await cp.screenshot({ path: path.join(out, 'client-workspace-loading.png') });
     const viewerText = await cp.locator('#remote-browser').evaluate(async element => element.executeJavaScript('document.body.innerText'));
     if (!real) assert.match(viewerText, /Isolated Chromium Session/);
     if (real) {
