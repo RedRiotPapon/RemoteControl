@@ -1,0 +1,16 @@
+appId: com.parallelbrowser.client
+productName: ParallelBrowser Client
+directories:
+  output: release
+files:
+  - package.json
+  - dist/**/*
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: "ParallelBrowser-Client-Setup.exe"

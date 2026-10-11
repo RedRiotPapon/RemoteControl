@@ -1,0 +1,25 @@
+{
+  "name": "parallelbrowser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ParallelBrowser - Remote isolated browser access system",
+  "scripts": {
+    "install:all": "npm install --prefix shared && npm install --prefix host-app && npm install --prefix client-app",
+    "build:shared": "npm run build --prefix shared",
+    "build:host": "npm run build --prefix host-app",
+    "build:client": "npm run build --prefix client-app",
+    "build:all": "npm run build:shared && npm run build:host && npm run build:client",
+    "start:host": "npm run start --prefix host-app",
+    "start:client": "npm run start --prefix client-app",
+    "dev:host": "npm run dev --prefix host-app",
+    "dev:client": "npm run dev --prefix client-app",
+    "dist:host": "npm run build:shared && npm run build:host && npm run dist --prefix host-app",
+    "dist:client": "npm run build:shared && npm run build:client && npm run dist --prefix client-app",
+    "dist:all": "npm run dist:host && npm run dist:client",
+    "clean": "rimraf shared/dist host-app/dist client-app/dist",
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.5"
+  }
+}

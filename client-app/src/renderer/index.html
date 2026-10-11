@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src http: about:;">
+  <title>ParallelBrowser Client</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Connection Screen -->
+    <section id="screen-connect" class="screen active">
+      <div class="connect-container">
+        <div class="connect-card">
+          <div class="logo-large">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.5">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/>
+              <line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+            <h1>ParallelBrowser</h1>
+            <p class="subtitle">Connect to a remote isolated browser</p>
+          </div>
+
+          <div class="form-group">
+            <label for="input-name">Your Name</label>
+            <input type="text" id="input-name" placeholder="Enter your name" value="Remote User">
+          </div>
+
+          <div class="form-group">
+            <div class="label-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <label for="input-code" style="margin:0;">Invitation Code</label>
+              <button type="button" id="btn-paste-code" class="btn btn-secondary btn-small" style="padding:2px 8px; font-size:12px;">📋 Paste</button>
+            </div>
+            <textarea id="input-code" placeholder="Paste the invitation code from the host" rows="3"></textarea>
+          </div>
+
+          <button id="btn-connect" class="btn btn-primary btn-large">Connect</button>
+
+          <div id="connect-status" class="status-message" style="display:none" role="alert"></div>
+
+          <div class="novice-help-box" style="margin-top:16px; font-size:13px; color:#94a3b8; text-align:left;">
+            <details style="background:#0f172a; padding:10px 14px; border-radius:6px; border:1px solid #334155;">
+              <summary style="cursor:pointer; font-weight:600; color:#38bdf8;">How to connect</summary>
+              <div style="margin-top:8px; line-height:1.5;">
+                <p style="margin:4px 0;"><strong>No technical environment needed on this PC:</strong></p>
+                <ul style="padding-left:18px; margin:4px 0;">
+                  <li>Docker, WSL, and Python are <strong>never</strong> required on your computer.</li>
+                  <li>The host user clicks <em>"Start Browser"</em> and shares their <em>Invitation Code</em> with you.</li>
+                  <li>Paste the code above and click <em>Connect</em>.</li>
+                  <li>Once the host approves, you can browse freely without touching their computer.</li>
+                  <li><em>Internet connections:</em> If connecting from outside the host's house/office, both PCs should have free Tailscale active.</li>
+                </ul>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Waiting/Status Screen -->
+    <section id="screen-waiting" class="screen">
+      <div class="connect-container">
+        <div class="connect-card">
+          <div class="spinner"></div>
+          <h2 id="waiting-title">Connecting...</h2>
+          <p id="waiting-message" class="text-muted">Please wait while we establish a secure connection.</p>
+          <button id="btn-cancel" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Browser View Screen -->
+    <section id="screen-browser" class="screen">
+      <div class="browser-toolbar">
+        <div class="toolbar-info">
+          <span class="connection-dot connected"></span>
+          <span id="toolbar-status">Connected</span>
+        </div>
+        <div class="toolbar-actions">
+          <button id="btn-upload-files" class="btn btn-secondary btn-small">Upload from this PC</button>
+          <button id="btn-downloads" class="btn btn-secondary btn-small">Downloads</button>
+          <button id="btn-fullscreen" class="btn-icon" title="Toggle Fullscreen">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M8 3H5a2 2 0 00-2 2v3M21 8V5a2 2 0 00-2-2h-3M3 16v3a2 2 0 002 2h3M16 21h3a2 2 0 002-2v-3"/>
+            </svg>
+          </button>
+          <button id="btn-disconnect-client" class="btn btn-danger btn-small">Disconnect</button>
+        </div>
+      </div>
+      <div id="file-notice" class="file-notice" hidden role="status" aria-live="polite">
+        <span id="file-message"></span>
+        <progress id="file-progress" max="100" value="0" hidden aria-label="File transfer progress"></progress>
+        <button id="btn-cancel-transfer" class="btn btn-secondary btn-small" hidden>Cancel transfer</button>
+        <button id="btn-dismiss-file-notice" class="btn-icon" aria-label="Dismiss file message">×</button>
+      </div>
+      <div id="vnc-container" class="vnc-container">
+        <webview id="remote-browser" partition="pb-remote-inactive" style="display:none; width:100%; height:100%; border:none;" aria-label="Remote workspace"></webview>
+        <div id="vnc-placeholder" class="vnc-placeholder" hidden role="status" aria-live="polite">
+          <p id="viewer-message">Connecting to browser session...</p>
+          <button id="btn-reload-viewer" class="btn btn-secondary btn-small">Reload view</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Disconnected Screen -->
+    <section id="screen-disconnected" class="screen">
+      <div class="connect-container">
+        <div class="connect-card">
+          <div class="disconnect-icon">⚡</div>
+          <h2 id="disconnect-title">Disconnected</h2>
+          <p id="disconnect-message" class="text-muted">The connection was closed.</p>
+          <div class="disconnect-actions">
+            <button id="btn-reconnect" class="btn btn-primary">Use a new invitation</button>
+            <button id="btn-back-to-login" class="btn btn-secondary">Back to Login</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <dialog id="downloads-dialog" aria-labelledby="downloads-title">
+    <div class="downloads-heading">
+      <h2 id="downloads-title">Save downloads to this PC</h2>
+      <button id="btn-close-downloads" class="btn-icon" aria-label="Close downloads">×</button>
+    </div>
+    <p class="text-muted">Download a file in the remote browser, then save it here. Only completed files in its Downloads folder appear. Workspace files are deleted when the host stops the session.</p>
+    <button id="btn-refresh-downloads" class="btn btn-secondary btn-small">Refresh list</button>
+    <p id="downloads-status" role="status" aria-live="polite"></p>
+    <ul id="downloads-list" class="downloads-list"></ul>
+  </dialog>
+  <script src="app.js"></script>
+</body>
+</html>

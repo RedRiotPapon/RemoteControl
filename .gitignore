@@ -1,0 +1,32 @@
+# Dependencies and build output
+**/node_modules/
+**/dist/
+**/release/
+/installer/*.exe
+/installer/*.blockmap
+/installer/*.zip
+
+# Old JavaScript emitted beside the canonical TypeScript services
+/host-app/src/services/*.js
+/host-app/src/services/*.js.map
+
+# Local configuration, credentials and runtime data
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.key
+*.pfx
+*.p12
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# QA captures may contain local profile names, addresses or invitation codes.
+# These two reviewed captures use only the synthetic profile/test website.
+/docs/qa/*
+!/docs/qa/host-private-setup.png
+!/docs/qa/host-profile-small.png

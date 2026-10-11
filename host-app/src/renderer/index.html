@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'">
+  <title>ParallelBrowser Host</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <div class="logo">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+        <h1>ParallelBrowser <span class="subtitle">Host</span></h1>
+      </div>
+      <div class="header-actions">
+        <button id="btn-settings" class="btn-icon" title="Settings" aria-label="Session settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+    <div id="host-notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+    <!-- Setup Screen -->
+    <section id="screen-setup" class="screen active">
+      <div class="setup-card">
+        <h2>System Check</h2>
+        <p class="setup-desc">The client uses an isolated Chromium browser while you keep working on your desktop. Docker Desktop is required on this PC.</p>
+        <div class="dep-list">
+          <div class="dep-item" id="dep-docker">
+            <span class="dep-icon">⏳</span>
+            <span class="dep-label">Docker Desktop</span>
+            <span class="dep-status">Checking...</span>
+          </div>
+          <div class="dep-item" id="dep-tailscale">
+            <span class="dep-icon">⏳</span>
+            <span class="dep-label">Tailscale VPN</span>
+            <span class="dep-status">Checking...</span>
+          </div>
+        </div>
+        <button id="btn-recheck" class="btn btn-secondary">Re-check</button>
+        <button id="btn-continue-setup" class="btn btn-primary" disabled>Continue</button>
+      </div>
+    </section>
+
+    <!-- Main Dashboard Screen -->
+    <section id="screen-dashboard" class="screen">
+      <div class="workspace-intro">
+        <div><span class="eyebrow">HOST WORKSPACE</span><h2>Share a browser. Keep your desktop.</h2>
+        <p>Start the workspace, share an invitation, then approve your client.</p></div>
+        <span class="isolation-chip">Independent mouse &amp; keyboard</span>
+      </div>
+      <div class="capability-note"><strong>Independent browser workspace</strong><p>Choose a Windows Chrome profile to copy web bookmarks and basic settings for this session. Sign in yourself in private setup, then invite and approve the client. Installed Windows programs are not supported by this browser workspace.</p></div>
+      <div class="profile-controls card">
+        <label for="chrome-profile">Browser profile</label>
+        <div class="profile-picker"><select id="chrome-profile"><option value="">Fresh browser — no profile data</option></select>
+        <button id="btn-refresh-profiles" class="btn btn-secondary">Refresh profiles</button></div>
+        <p class="text-small text-muted" id="profile-help">Profile copies stay on this PC in the temporary workspace. No Windows passwords or sign-in cookies are copied.</p>
+        <div id="host-setup-section" hidden>
+          <p id="host-setup-status" role="status"></p>
+          <div class="profile-picker"><button id="btn-open-host-setup" class="btn btn-secondary">Open private setup</button>
+          <button id="btn-finish-host-setup" class="btn btn-primary">I've finished setup</button></div>
+        </div>
+      </div>
+      <div class="dashboard-grid">
+        <!-- Session Status Card -->
+        <div class="card status-card">
+          <div class="card-header">
+            <h3>Browser Session</h3>
+            <span id="session-badge" class="badge badge-idle">Idle</span>
+          </div>
+          <div class="card-body">
+            <p id="session-progress" class="text-small text-muted" role="status" aria-live="polite"></p>
+            <div class="stat-row">
+              <span class="stat-label">Session ID</span>
+              <span id="stat-session-id" class="stat-value">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Duration</span>
+              <span id="stat-duration" class="stat-value">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Resolution</span>
+              <span id="stat-resolution" class="stat-value">—</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button id="btn-start-browser" class="btn btn-primary">Start Browser</button>
+            <button id="btn-stop-browser" class="btn btn-danger" disabled>Stop Browser</button>
+          </div>
+        </div>
+
+        <!-- Client Connection Card -->
+        <div class="card connection-card">
+          <div class="card-header">
+            <h3>Client Connection</h3>
+            <span id="client-badge" class="badge badge-idle">No Client</span>
+          </div>
+          <div class="card-body">
+            <div id="invitation-section" class="invitation-section" style="display:none">
+              <p>Share this invitation code with the client:</p>
+              <div class="invitation-code-box">
+                <code id="invitation-code"></code>
+                <button id="btn-copy-code" class="btn-icon" title="Copy">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2"/>
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                  </svg>
+                </button>
+              </div>
+              <p class="text-small text-muted">Host address: <span id="tailscale-ip">—</span></p>
+            </div>
+            <div id="approval-section" class="approval-section" style="display:none">
+              <div class="approval-alert">
+                <p>🔔 <strong id="pending-client-name">A client</strong> is requesting access</p>
+                <p class="text-small">Approving gives this client control of the prepared browser, including its bookmarks and signed-in websites.</p>
+                <div class="approval-actions">
+                  <button id="btn-approve" class="btn btn-primary">Approve</button>
+                  <button id="btn-reject" class="btn btn-danger">Reject</button>
+                </div>
+              </div>
+            </div>
+            <div id="connected-section" class="connected-section" style="display:none">
+              <p>✅ Client connected: <strong id="connected-client-name"></strong></p>
+              <div class="stat-row">
+                <span class="stat-label">Connected Since</span>
+                <span id="stat-client-connected" class="stat-value">—</span>
+              </div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button id="btn-generate-invite" class="btn btn-secondary" disabled>Generate Invitation</button>
+            <button id="btn-disconnect-client" class="btn btn-danger" disabled>Disconnect Client</button>
+          </div>
+        </div>
+
+        <!-- Resource Monitor Card -->
+        <div class="card resources-card">
+          <div class="card-header">
+            <h3>Resources</h3>
+          </div>
+          <div class="card-body">
+            <div class="resource-bar">
+              <span class="resource-label">CPU</span>
+              <div class="progress-bar">
+                <div id="cpu-bar" class="progress-fill" style="width:0%"></div>
+              </div>
+              <span id="cpu-text" class="resource-value">0%</span>
+            </div>
+            <div class="resource-bar">
+              <span class="resource-label">Memory</span>
+              <div class="progress-bar">
+                <div id="mem-bar" class="progress-fill" style="width:0%"></div>
+              </div>
+              <span id="mem-text" class="resource-value">0 MB</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="settings-title">Session Settings</h3>
+          <button id="btn-close-settings" class="btn-icon" aria-label="Close settings">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="setting-width">Browser Width</label>
+            <input type="number" id="setting-width" value="1920" min="800" max="3840" required>
+          </div>
+          <div class="form-group">
+            <label for="setting-height">Browser Height</label>
+            <input type="number" id="setting-height" value="1080" min="600" max="2160" required>
+          </div>
+          <div class="form-group">
+            <label for="setting-duration">Max Session Duration (minutes)</label>
+            <input type="number" id="setting-duration" value="480" min="0" max="1440" required>
+            <span class="text-small text-muted">0 means no time limit. Settings apply to the next session.</span>
+          </div>
+        </div>
+        <p id="settings-error" class="settings-error" role="alert"></p>
+        <div class="modal-footer">
+          <button id="btn-save-settings" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
