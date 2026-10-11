@@ -5,7 +5,9 @@ contextBridge.exposeInMainWorld('hostAPI', {
   checkDependencies: () => ipcRenderer.invoke('check-dependencies'),
 
   // Session
-  startBrowser: (config?: any, profileId?: string) => ipcRenderer.invoke('start-browser', config, profileId),
+  startBrowser: (config?: any, profileId?: string, mode?: string) => ipcRenderer.invoke('start-browser', config, profileId, mode),
+  getSharingInfo: () => ipcRenderer.invoke('get-sharing-info'),
+  onSharingUpdate: (callback: (data: any) => void) => ipcRenderer.on('sharing-update', (_event, data) => callback(data)),
   listChromeProfiles: () => ipcRenderer.invoke('list-chrome-profiles'),
   openHostSetup: () => ipcRenderer.invoke('open-host-setup'),
   finishHostSetup: () => ipcRenderer.invoke('finish-host-setup'),
@@ -14,11 +16,8 @@ contextBridge.exposeInMainWorld('hostAPI', {
 
   // Connection
   generateInvitation: () => ipcRenderer.invoke('generate-invitation'),
-  startServer: () => ipcRenderer.invoke('start-server'),
-  stopServer: () => ipcRenderer.invoke('stop-server'),
   disconnectClient: () => ipcRenderer.invoke('disconnect-client'),
   approveClient: (approve: boolean) => ipcRenderer.invoke('approve-client', approve),
-  getTailscaleIP: () => ipcRenderer.invoke('get-tailscale-ip'),
 
   // Settings
   getConfig: () => ipcRenderer.invoke('get-config'),

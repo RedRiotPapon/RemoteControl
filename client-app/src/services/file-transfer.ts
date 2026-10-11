@@ -1,8 +1,9 @@
 import * as http from 'http';
+import * as https from 'https';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
-import { Transform } from 'stream';
+import { Readable, Transform } from 'stream';
 import { pipeline } from 'stream/promises';
 
 const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
@@ -14,16 +15,18 @@ export class FileTransfer {
   private token: string | null = null;
   private requests = new Set<http.ClientRequest>();
   private generation = 0;
+  private cancellation = 0;
   constructor(private progress: (value: TransferProgress) => void = () => {}) {}
 
   approve(streamUrl: string): void {
     this.clear();
     const url = new URL(streamUrl), token = url.searchParams.get('access');
-    if (url.protocol !== 'http:' || !token || !/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid file transfer connection.');
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !token || !/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid file transfer connection.');
     this.origin = url.origin; this.token = token;
   }
   clear(): void { this.cancel(); this.origin = null; this.token = null; this.generation++; }
   cancel(): void {
+    this.cancellation++;
     for (const request of this.requests) request.destroy(new Error('File transfer cancelled.'));
     this.requests.clear();
   }
@@ -35,7 +38,8 @@ export class FileTransfer {
     this.assertConnected();
     let request!: http.ClientRequest;
     const response = new Promise<http.IncomingMessage>((resolve, reject) => {
-      request = http.request(new URL('/api/files/' + route, this.origin!), {
+      const transport = this.origin!.startsWith('https:') ? https : http;
+      request = transport.request(new URL('/api/files/' + route, this.origin!), {
         method, headers: { Authorization: `Bearer ${this.token}`, ...(size === undefined ? {} : { 'Content-Length': size }) },
       }, resolve);
       request.once('error', reject);
@@ -58,8 +62,8 @@ export class FileTransfer {
     if (!response.statusCode || response.statusCode >= 400) throw new Error(value.error || 'File transfer failed.');
     return value;
   }
-  private meter(direction: 'upload' | 'download', name: string, total: number): Transform {
-    let transferred = 0, last = 0;
+  private meter(direction: 'upload' | 'download', name: string, total: number, offset = 0): Transform {
+    let transferred = offset, last = 0;
     return new Transform({ transform: (chunk, _encoding, callback) => {
       transferred += chunk.length;
       if (Date.now() - last >= 150 || transferred === total) {
@@ -76,12 +80,58 @@ export class FileTransfer {
   }
   async upload(filePath: string): Promise<{ name: string; size: number }> {
     this.assertConnected();
+    const generation = this.generation, cancellation = this.cancellation;
+    const assertActive = () => {
+      this.assertConnected(generation);
+      if (cancellation !== this.cancellation) throw new Error('File transfer cancelled.');
+    };
     const file = await fs.promises.open(filePath, 'r');
     try {
       const info = await file.stat();
       if (!info.isFile()) throw new Error('Choose a regular file.');
       if (info.size > MAX_UPLOAD_BYTES) throw new Error('Choose a file no larger than 1 GiB.');
       const name = path.basename(filePath);
+      assertActive();
+      if (this.origin!.startsWith('https:')) {
+        // Small sequential requests avoid the tunnel provider's request-body limit.
+        const call = async (route: string) => {
+          assertActive();
+          const { request, response } = this.request('PUT', route, 0);
+          request.end(); return this.json(await response);
+        };
+        const { id } = await call('upload-start?name=' + encodeURIComponent(name) + '&size=' + info.size);
+        if (typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id)) throw new Error('Invalid upload identifier.');
+        try {
+          for (let offset = 0; offset < info.size; offset += 4 * 1024 * 1024) {
+            assertActive();
+            const size = Math.min(4 * 1024 * 1024, info.size - offset);
+            const { request, response } = this.request('PUT', `upload-part?id=${id}&offset=${offset}`, size);
+            async function* readPart() {
+              let position = offset;
+              while (position < offset + size) {
+                const block = Buffer.allocUnsafe(Math.min(65536, offset + size - position));
+                const { bytesRead } = await file.read(block, 0, block.length, position);
+                if (!bytesRead) throw new Error('The selected file changed during upload. Try again.');
+                position += bytesRead; yield block.subarray(0, bytesRead);
+              }
+            }
+            await Promise.all([
+              pipeline(Readable.from(readPart(), { objectMode: false }),
+                this.meter('upload', name, info.size, offset), request),
+              response.then(value => this.json(value)),
+            ]);
+          }
+          return await call('upload-finish?id=' + id);
+        } catch (error) {
+          // The isolated workspace also removes abandoned chunks on expiry or stop.
+          if (generation === this.generation && this.token) {
+            const { request, response } = this.request('PUT', 'upload-cancel?id=' + id, 0);
+            request.setTimeout(2000, () => request.destroy()); request.end();
+            response.then(value => value.resume()).catch(() => {});
+          }
+          throw error;
+        }
+      }
       const { request, response } = this.request('PUT', 'upload?name=' + encodeURIComponent(name), info.size);
       const sending = pipeline(file.createReadStream({ autoClose: false }), this.meter('upload', name, info.size), request);
       const receiving = response.then(value => this.json(value));

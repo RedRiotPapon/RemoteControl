@@ -16,8 +16,9 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   try {
     host = await _electron.launch({ executablePath: require(path.join(root, 'host-app/node_modules/electron')),
       args: [path.join(root, 'scripts/qa-host.cjs')], env });
-    const hp = await host.firstWindow(); hp.setDefaultTimeout(30000);
+    const hp = await host.firstWindow(); hp.setDefaultTimeout(120000);
     await hp.locator('#btn-continue-setup:not([disabled])').click();
+    await hp.locator('#connection-mode').selectOption(process.env.PB_QA_INTERNET === '1' ? 'internet' : 'lan');
     await hp.locator('#btn-start-browser').click();
     await hp.locator('#btn-generate-invite:not([disabled])').click();
     const code = await hp.locator('#invitation-code').textContent();

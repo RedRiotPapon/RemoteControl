@@ -8,7 +8,7 @@ Dependencies, compiled `dist` directories, Electron `release` directories and in
 
 ## Build and verify on Windows
 
-Install Node.js and npm, Docker Desktop with its Linux engine, and WSL 2 on the development host. Docker and WSL are required by the existing local dependency-check tests. Tailscale is optional for local testing.
+Install Node.js and npm, Docker Desktop with its Linux engine, and WSL 2 on the development host. Docker and WSL are required by the existing local dependency-check tests. Run `npm run bundle:tunnel` before source-mode Internet tests; no VPN is required.
 
 From the repository root:
 
@@ -45,7 +45,7 @@ Set `PB_QA_PACKAGED=1` before running the profile and file UI checks to exercise
 
 Distribute executables as GitHub Release assets rather than committing them to Git history. Upload both installers together so users have compatible Host and Client file-transfer versions. Publish SHA-256 checksums alongside them, and describe the profile import scope and remaining Windows-program limitation. These binaries use the project's existing Electron 28 runtime; review and upgrade that runtime before broad distribution.
 
-The **Windows downloads** workflow builds all three EXEs on a GitHub-hosted Windows runner and publishes a `v1.0.1` Release with checksums and [release instructions](release-notes.md). Its initial run is triggered when the workflow file is pushed to `main`; it also supports manual dispatch. It creates a draft, uploads all files, then publishes it. An existing release is not overwritten. Update the version/tag and concurrency group deliberately before publishing a later release. GitHub builds do not run the Docker/WSL-dependent local regression suite; run those checks locally before publication.
+The **Windows downloads** workflow builds all three EXEs on a GitHub-hosted Windows runner and publishes a `v1.1.0` Release with checksums and [release instructions](release-notes.md). Its initial run is triggered when the workflow file is pushed to `main`; it also supports manual dispatch. It creates a draft, uploads all files, then publishes it. An existing release is not overwritten. Update the version/tag and concurrency group deliberately before publishing a later release. GitHub builds do not run the Docker/WSL-dependent local regression suite; run those checks locally before publication.
 
 ## Documentation
 

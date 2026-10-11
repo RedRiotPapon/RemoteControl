@@ -13,7 +13,7 @@ A two-application system that allows a remote user to control an isolated Chromi
 
 - **Complete isolation**: The browser runs in a Docker container with its own display — never touches your desktop
 - **Independent input**: Remote keyboard and mouse only affect the container browser, never your Windows session
-- **Remote transport**: Tailscale VPN encrypts traffic between PCs; trusted LAN mode uses HTTP/WebSocket without TLS
+- **Remote transport**: Bundled internet sharing uses HTTPS/WSS without VPN installation; trusted LAN mode uses HTTP/WebSocket without TLS
 - **Host approval**: You explicitly approve or reject every client connection
 - **Private profile setup**: Profile import needs host permission; the host signs in before the client can connect
 - **Session-only profile data**: Disconnecting a client ends an imported-profile session and removes its workspace
@@ -29,13 +29,12 @@ Get the Windows EXEs from [GitHub Releases](https://github.com/RedRiotPapon/Remo
 - **Client (installed):** use **ParallelBrowser-Client-Setup.exe** for one-click installation and launch.
 - **Host:** use **ParallelBrowser-Host-Setup.exe** on the PC providing the browser. Docker Desktop is required on the host only.
 
-The PCs must share a reachable local network, or both have Tailscale configured for an internet connection. The host should handle that one-time network setup for a nontechnical client. These Windows x64 builds are unsigned, so Windows may show a publisher warning. See the [download instructions](docs/release-notes.md).
+Leave **Connect through → Internet** selected on the Host to connect across different networks. Both apps must be updated to 1.1.0+. No Tailscale, VPN account or port forwarding is needed. The bundled Cloudflare Quick Tunnel is a best-effort preview service with no uptime guarantee; Cloudflare terminates TLS. See [internet sharing, privacy and troubleshooting](docs/internet-sharing.md). These Windows x64 builds are unsigned, so Windows may show a publisher warning.
 
 ### Prerequisites
 
 1. **Docker Desktop** with WSL2 backend — [Download](https://www.docker.com/products/docker-desktop/)
-2. **Tailscale** (for internet connections) — [Download](https://tailscale.com/download)
-3. **Node.js and npm** (only for building from source) — [Download](https://nodejs.org/)
+2. **Node.js and npm** (only for building from source) — [Download](https://nodejs.org/)
 
 ### Build from Source
 
@@ -47,6 +46,7 @@ npm run install:all
 
 # Build everything
 npm run build:all
+npm run bundle:tunnel
 
 # Run host
 npm run start:host
@@ -70,7 +70,7 @@ Installers will be in:
 
 ### Host Workflow
 1. Open ParallelBrowser Host
-2. Complete the dependency check (Docker + Tailscale)
+2. Complete the Docker check and leave Internet sharing selected
 3. Select **Fresh browser** or one of your Windows **Chrome profiles**, then click **Start Browser**. For a profile, review and authorize the temporary copy in the native confirmation dialog.
 4. For a profile, click **Open private setup**, sign in yourself in that browser window, then return to Host and click **I've finished setup**. Confirm that it is ready for the client. Invitations stay blocked until you finish. You can also privately prepare a fresh browser.
 5. Click **Generate Invitation** and share the one-time code with the remote user.
@@ -103,6 +103,8 @@ For Electron UI checks, set `PLAYWRIGHT_MODULE` to an installed Playwright modul
 
 Run `node scripts/ui-file-smoke.js` with the same Playwright setting for real file transfer checks. It exercises the toolbar and IPC with QA-only native-dialog stubs, selects the uploaded file through Chromium's remote file picker, submits it to a local test website, downloads its response, and verifies the bytes saved on the client PC. It creates and removes its own workspace and local temporary files.
 
+Set `PB_QA_INTERNET=1` to run the UI/file/profile/portable checks through the real public HTTPS tunnel; add `PB_QA_LARGE=1` to the file check to test an upload over 100 MiB. The tests default to trusted LAN transport.
+
 Set `PB_QA_PACKAGED=1` for this file test to launch the rebuilt `release/win-unpacked` executables instead of the source builds.
 
 Run `node scripts/ui-profile-smoke.js` for profile consent, private host sign-in, invitation gating, approved client access, disconnect cleanup and forced-host-termination cleanup. This uses a synthetic profile and local test website, never the host's real bookmarks or accounts. `PB_QA_PACKAGED=1` also supports this test.
@@ -113,6 +115,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 
 ## Documentation
 
+- [Internet sharing without extra networking tools](docs/internet-sharing.md)
 - [Setup, host/client workflow and troubleshooting](docs/setup.md)
 - [Capabilities, test evidence and remaining Windows app support](docs/usability-review.md)
 - [Repository, build verification and release guide](docs/github.md)

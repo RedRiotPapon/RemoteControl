@@ -4,7 +4,7 @@ export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
 export interface FileEndpoint { port: number; token: string; }
 
 export const FILE_AGENT = String.raw`
-import os, json, stat, uuid, hmac
+import os, json, stat, uuid, hmac, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlsplit, parse_qs
 
@@ -12,6 +12,8 @@ ROOT = '/home/kasm-user'
 MAX = 1073741824
 TOKEN = os.environ['PB_FILES_TOKEN']
 folders = {}
+uploads = {}
+upload_lock = threading.Lock()
 for name in ('Uploads', 'Downloads'):
     path = ROOT + '/' + name
     os.makedirs(path, exist_ok=True)
@@ -21,6 +23,32 @@ def filename(value):
     if not value or value in ('.', '..') or len(value.encode('utf-8')) > 220 or any(ord(c) < 32 or c in '/\\' for c in value):
         raise ValueError('Choose a regular file with a shorter filename.')
     return value
+
+def publish(temporary, name):
+    fd = folders['Uploads']
+    stem, extension = os.path.splitext(name)
+    chosen = name
+    for index in range(10000):
+        try:
+            os.link(temporary, chosen, src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
+            return chosen
+        except FileExistsError: chosen = stem + ' (' + str(index + 1) + ')' + extension
+    raise ValueError('Too many files with this name.')
+
+def discard(identifier):
+    item = uploads.pop(identifier, None)
+    if item:
+        try: os.unlink(item['temporary'], dir_fd=folders['Uploads'])
+        except FileNotFoundError: pass
+
+def expire_uploads():
+    while True:
+        time.sleep(60)
+        with upload_lock:
+            for identifier, item in list(uploads.items()):
+                if time.monotonic() - item['updated'] > 300: discard(identifier)
+
+threading.Thread(target=expire_uploads, daemon=True).start()
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
@@ -92,6 +120,8 @@ class Handler(BaseHTTPRequestHandler):
         fd = folders['Uploads']
         try:
             url = urlsplit(self.path)
+            if url.path in ('/upload-start', '/upload-part', '/upload-finish', '/upload-cancel'):
+                self.chunk_upload(url); return
             if url.path != '/upload':
                 self.reply(404, {'error': 'Unknown file operation.'}); return
             name = filename(parse_qs(url.query).get('name', [''])[0])
@@ -108,14 +138,7 @@ class Handler(BaseHTTPRequestHandler):
                     target.write(block)
                     remaining -= len(block)
             # Never overwrite an earlier upload or follow an existing symlink.
-            stem, extension = os.path.splitext(name)
-            chosen = name
-            for index in range(10000):
-                try:
-                    os.link(temporary, chosen, src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
-                    break
-                except FileExistsError: chosen = stem + ' (' + str(index + 1) + ')' + extension
-            else: raise ValueError('Too many files with this name.')
+            chosen = publish(temporary, name)
             self.reply(201, {'name': chosen, 'size': size})
         except (BrokenPipeError, ConnectionResetError): pass
         except (ValueError, OSError): self.reply(400, {'error': 'Upload failed. Check the filename and available workspace storage.'})
@@ -123,6 +146,51 @@ class Handler(BaseHTTPRequestHandler):
             if temporary:
                 try: os.unlink(temporary, dir_fd=fd)
                 except FileNotFoundError: pass
+
+    def chunk_upload(self, url):
+        query = parse_qs(url.query)
+        size = int(self.headers.get('Content-Length', '-1'))
+        if self.headers.get('Transfer-Encoding') or size < 0 or size > 4194304 or (url.path != '/upload-part' and size != 0):
+            raise ValueError('Invalid upload chunk.')
+        fd = folders['Uploads']
+        # Serialize metadata and writes; no concurrent part can change the offset.
+        with upload_lock:
+            if url.path == '/upload-start':
+                name = filename(query.get('name', [''])[0])
+                total = int(query.get('size', ['-1'])[0])
+                if total < 0 or total > MAX or len(uploads) >= 4: raise ValueError('Invalid upload size or too many active uploads.')
+                identifier = uuid.uuid4().hex
+                temporary = '.pb-upload-' + identifier
+                output = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+                os.close(output)
+                uploads[identifier] = dict(temporary=temporary, name=name, total=total, written=0, updated=time.monotonic())
+                self.reply(201, {'id': identifier}); return
+            identifier = query.get('id', [''])[0]
+            item = uploads.get(identifier)
+            if not item: raise ValueError('Upload expired. Try again.')
+            if url.path == '/upload-cancel':
+                discard(identifier); self.reply(200, {'cancelled': True}); return
+            try:
+                if url.path == '/upload-part':
+                    offset = int(query.get('offset', ['-1'])[0])
+                    if offset != item['written'] or size == 0 or offset + size > item['total']: raise ValueError('Invalid upload offset.')
+                    output = os.open(item['temporary'], os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW, dir_fd=fd)
+                    with os.fdopen(output, 'ab') as target:
+                        remaining = size
+                        while remaining:
+                            block = self.rfile.read(min(65536, remaining))
+                            if not block: raise ValueError('Upload interrupted.')
+                            target.write(block); remaining -= len(block)
+                    item['written'] += size; item['updated'] = time.monotonic()
+                    self.reply(200, {'written': item['written']})
+                else:
+                    if item['written'] != item['total']: raise ValueError('Upload incomplete.')
+                    chosen = publish(item['temporary'], item['name'])
+                    discard(identifier)
+                    self.reply(201, {'name': chosen, 'size': item['total']})
+            except Exception:
+                discard(identifier)
+                raise
 
 ThreadingHTTPServer(('0.0.0.0', 9090), Handler).serve_forever()
 `;

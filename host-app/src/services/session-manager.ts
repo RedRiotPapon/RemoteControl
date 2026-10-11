@@ -155,7 +155,7 @@ export class SessionManager extends EventEmitter {
     this.emit('session-update', this.getSessionInfo());
   }
 
-  async generateInvitation(hostAddress?: string): Promise<string> {
+  async generateInvitation(hostAddress?: string, port = WEBSOCKET_PROXY_PORT, secure = false): Promise<string> {
     if (this.hostSetupRequired) throw new Error('Finish private host setup before inviting a client.');
     if (this.sessionStatus !== SessionStatus.RUNNING && this.sessionStatus !== SessionStatus.CLIENT_PENDING) {
       throw new Error('Browser session must be running before generating an invitation code.');
@@ -173,7 +173,7 @@ export class SessionManager extends EventEmitter {
         ? this.currentHostAddress
         : getBestHostIP();
 
-    return generateInvitationCode(targetIp, WEBSOCKET_PROXY_PORT, this.currentToken, 60);
+    return generateInvitationCode(targetIp, port, this.currentToken, 60, secure);
   }
 
   verifyToken(token: string): boolean {

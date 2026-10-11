@@ -47,11 +47,11 @@ export interface InvitationCode {
   port: number;
   token: string;
   expiresAt: string;
+  secure: boolean;
 }
 
 export interface DependencyStatus {
   docker: { installed: boolean; running: boolean; version: string | null };
-  tailscale: { installed: boolean; connected: boolean; ip: string | null; version: string | null };
   wsl: { installed: boolean; version: string | null };
 }
 

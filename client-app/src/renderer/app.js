@@ -111,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const current = ++attempt;
     $('connect-status').style.display = 'none';
     $('waiting-title').textContent = 'Connecting…';
-    $('waiting-message').textContent = 'Contacting the host. Both PCs need a working LAN or Tailscale connection.';
+    $('waiting-message').textContent = code.startsWith('PB2-') ? 'Contacting your host securely over the internet…' : 'Contacting your host on the local network. For different networks, ask for an Internet sharing invitation.';
     showScreen('screen-waiting'); status('Connecting…', 'pending');
     try {
       const result = await window.clientAPI.connect(code, name);
@@ -211,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
   window.clientAPI.onApproved(config => {
     connecting = false;
     viewerFailed = false;
-    if (!config?.streamUrl || !/^pb-remote-[a-f0-9]{32}$/.test(config.viewerPartition || '')) {
+    if (!config?.streamUrl || !/^https?:\/\//.test(config.streamUrl) || !/^pb-remote-[a-f0-9]{32}$/.test(config.viewerPartition || '')) {
       window.clientAPI.disconnect();
       disconnected('Display unavailable', 'The host did not provide a workspace URL. Restart the host session.'); return;
     }

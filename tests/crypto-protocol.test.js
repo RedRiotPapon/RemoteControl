@@ -101,11 +101,6 @@ describe('Protocol Message Serialization', () => {
 });
 
 describe('Network IP Resolution', () => {
-  test('getBestHostIP prefers explicit Tailscale IP when provided', () => {
-    const ip = getBestHostIP('100.90.80.70');
-    assert.strictEqual(ip, '100.90.80.70');
-  });
-
   test('getBestHostIP resolves to a valid IPv4 address', () => {
     const ip = getBestHostIP();
     assert.strictEqual(typeof ip, 'string');

@@ -18,6 +18,11 @@ const original = fs.readFileSync(path.join(fixture, 'Default/Bookmarks'));
 const apps = [], errors = [];
 const docker = args => execFileSync('docker', args, { windowsHide: true, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+function tunnelProcesses(hostPid) {
+  const script = `$workers = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = ${hostPid}" | Where-Object { $_.CommandLine -like '*tunnel-worker.js*' }); $ids = @($workers | ForEach-Object { $_.ProcessId; Get-CimInstance Win32_Process -Filter "ParentProcessId = $($_.ProcessId)" | Where-Object { $_.Name -eq 'cloudflared.exe' } | Select-Object -ExpandProperty ProcessId }); ConvertTo-Json -Compress -InputObject $ids`;
+  return JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', script], { windowsHide: true, encoding: 'utf8' }));
+}
+function exited(pid) { try { process.kill(pid, 0); return false; } catch (error) { if (error.code === 'ESRCH') return true; throw error; } }
 async function until(check, message, retries = 100) {
   for (let i = 0; i < retries; i++) { if (await check()) return; await wait(200); }
   throw new Error(message);
@@ -46,7 +51,7 @@ HTTPServer(('127.0.0.1',8088),Site).serve_forever()`;
   try {
     const host = await _electron.launch({ executablePath: packaged ? path.join(root, 'host-app/release/win-unpacked/ParallelBrowser Host.exe') : require(path.join(root, 'host-app/node_modules/electron')),
       args: packaged ? [] : [path.join(root, 'host-app/dist/main/index.js')], env }); apps.push(host);
-    const hp = await host.firstWindow(); hp.setDefaultTimeout(90000); hp.on('pageerror', e => errors.push(e.message));
+    const hp = await host.firstWindow(); hp.setDefaultTimeout(180000); hp.on('pageerror', e => errors.push(e.message));
     await hp.locator('#btn-recheck:not([disabled])').waitFor();
     await host.evaluate(({ dialog }) => {
       global.qaProfileApprove = false; global.qaProfileDialogs = [];
@@ -56,6 +61,7 @@ HTTPServer(('127.0.0.1',8088),Site).serve_forever()`;
       };
     });
     await hp.locator('#btn-recheck').click(); await hp.locator('#btn-continue-setup:not([disabled])').click();
+    await hp.locator('#connection-mode').selectOption(process.env.PB_QA_INTERNET === '1' ? 'internet' : 'lan');
     await hp.locator('#btn-refresh-profiles').click();
     await hp.locator('#chrome-profile').selectOption('Default');
     await hp.locator('#btn-settings').click(); await hp.locator('#setting-width').fill('1280'); await hp.locator('#setting-height').fill('720'); await hp.locator('#btn-save-settings').click();
@@ -72,7 +78,9 @@ HTTPServer(('127.0.0.1',8088),Site).serve_forever()`;
     const copied = docker(['exec', container, 'cat', '/home/kasm-user/.config/google-chrome/Default/Bookmarks']);
     assert.match(copied, /QA imported bookmark/);
     assert.doesNotMatch(docker(['exec', container, 'cat', '/home/kasm-user/.config/google-chrome/Default/Preferences']), /DO-NOT-COPY/);
-    const opened = host.waitForEvent('window'); await hp.locator('#btn-open-host-setup').click(); const setup = await opened;
+    await hp.locator('#btn-open-host-setup:not([disabled])').waitFor();
+    const opened = host.waitForEvent('window', { timeout: 120000 });
+    await hp.locator('#btn-open-host-setup').click(); const setup = await opened;
     setup.on('pageerror', e => errors.push(e.message));
     await setup.waitForFunction(() => [...document.querySelectorAll('canvas')].some(c => c.width >= 800));
     docker(['exec', '-d', container, 'python3', '-c', site]); await wait(300);
@@ -87,7 +95,7 @@ HTTPServer(('127.0.0.1',8088),Site).serve_forever()`;
     });
     await setup.mouse.click(point.x, point.y);
     await until(() => docker(['exec', container, 'wmctrl', '-l']).includes('QA signed in by host'), 'Host-only sign-in click failed');
-    await setup.screenshot({ path: path.join(out, 'host-private-setup.png') });
+    await setup.screenshot({ path: path.join(out, process.env.PB_QA_INTERNET === '1' ? 'internet-private-setup.png' : 'host-private-setup.png') });
     await hp.locator('#btn-finish-host-setup').click();
     await hp.locator('#btn-generate-invite:not([disabled])').waitFor();
     assert.ok(setup.isClosed());
@@ -105,7 +113,7 @@ HTTPServer(('127.0.0.1',8088),Site).serve_forever()`;
     assert.match(viewerPartition, /^pb-remote-[a-f0-9]{32}$/);
     assert.equal(docker(['exec', container, 'cat', '/tmp/qa-profile-visited']).trim(), 'signed');
     await host.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 550));
-    await hp.screenshot({ path: path.join(out, 'host-profile-small.png') });
+    await hp.screenshot({ path: path.join(out, process.env.PB_QA_INTERNET === '1' ? 'internet-profile-small.png' : 'host-profile-small.png') });
     await cp.locator('#btn-disconnect-client').click();
     await hp.waitForFunction(() => document.getElementById('session-badge').textContent === 'Idle');
     await cp.locator('#screen-disconnected.active').waitFor();
@@ -120,12 +128,16 @@ HTTPServer(('127.0.0.1',8088),Site).serve_forever()`;
     // A killed host must also remove its exact workspace via the detached helper.
     await hp.locator('#btn-start-browser').click();
     await hp.waitForFunction(() => document.getElementById('session-badge').textContent === 'Ready');
+    if (process.env.PB_QA_INTERNET === '1') await hp.waitForFunction(async () => (await window.hostAPI.getSharingInfo()).state === 'ready');
     container = (await hp.evaluate(() => window.hostAPI.getSessionInfo())).containerName;
     const hostPid = await host.evaluate(() => process.pid);
+    const tunnelPids = process.env.PB_QA_INTERNET === '1' ? tunnelProcesses(hostPid) : [];
+    if (process.env.PB_QA_INTERNET === '1') assert.equal(tunnelPids.length, 2, 'QA Host must own one tunnel worker and helper');
     // Playwright's Windows process can be a cmd.exe wrapper; kill the actual
     // Electron main PID returned by our own launched app, without killing helper children.
     execFileSync('powershell.exe', ['-NoProfile', '-Command', `Stop-Process -Id ${hostPid} -Force`], { windowsHide: true });
     await absent(container); container = null;
+    await until(() => tunnelPids.every(exited), 'Owned internet helper survived Host termination');
     console.log('PASS: abrupt host termination removed the temporary profile container.');
   } finally {
     for (const app of apps.reverse()) await app.close().catch(() => {});

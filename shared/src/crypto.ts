@@ -20,19 +20,25 @@ export function verifyToken(token: string, hashedToken: string, secret: string):
   return crypto.timingSafeEqual(Buffer.from(computed, 'hex'), Buffer.from(hashedToken, 'hex'));
 }
 
-export function generateInvitationCode(hostAddress: string, port: number, token: string, expiresInMinutes: number = 60): string {
+export function generateInvitationCode(hostAddress: string, port: number, token: string, expiresInMinutes: number = 60, secure = false): string {
   const data = {
     h: hostAddress,
     p: port,
     t: token,
     e: new Date(Date.now() + expiresInMinutes * 60 * 1000).toISOString(),
+    ...(secure ? { v: 2, s: 'https' } : {}),
   };
-  return Buffer.from(JSON.stringify(data)).toString('base64url');
+  return (secure ? 'PB2-' : '') + Buffer.from(JSON.stringify(data)).toString('base64url');
 }
 
-export function parseInvitationCode(code: string): { hostAddress: string; port: number; token: string; expiresAt: string } | null {
+export function parseInvitationCode(code: string): { hostAddress: string; port: number; token: string; expiresAt: string; secure: boolean } | null {
   try {
-    const data = JSON.parse(Buffer.from(code, 'base64url').toString('utf-8'));
+    if (typeof code !== 'string' || code.length > 4096) return null;
+    const secure = code.startsWith('PB2-');
+    const encoded = secure ? code.slice(4) : code;
+    if (!/^[a-zA-Z0-9_-]+$/.test(encoded)) return null;
+    const data = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf-8'));
+    if (secure ? data.v !== 2 || data.s !== 'https' : data.v !== undefined || data.s !== undefined) return null;
     if (typeof data.h !== 'string' || !/^[a-zA-Z0-9.-]+$/.test(data.h) || data.h.length > 253 ||
         !Number.isInteger(data.p) || data.p < 1 || data.p > 65535 ||
         typeof data.t !== 'string' || !/^[a-f0-9]{64}$/.test(data.t) ||
@@ -42,6 +48,7 @@ export function parseInvitationCode(code: string): { hostAddress: string; port: 
       port: data.p,
       token: data.t,
       expiresAt: data.e,
+      secure,
     };
   } catch {
     return null;

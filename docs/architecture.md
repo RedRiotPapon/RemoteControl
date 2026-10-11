@@ -4,9 +4,9 @@
 
 The client connects to `/control` for invitation authentication and host approval. On approval the host consumes the invitation and returns a short-lived-by-session stream bootstrap URL. That URL sets an HttpOnly stream cookie and redirects to `/`. The Electron client embeds the KasmVNC web viewer, which handles actual rendering, mouse and keyboard input. The host proxies authenticated HTTP resources and WebSocket upgrades to the container's HTTPS KasmVNC endpoint, supplying backend Basic credentials. Raw TCP RFB relay and the placeholder canvas are no longer used. Stopping the session or disconnecting the client revokes the cookie and closes existing stream connections.
 
-The historical raw-VNC diagrams below describe the original prototype, not the current transport. See [the usability review](usability-review.md) for the Windows workspace requirement and outstanding work.
+Internet mode routes HTTPS/WSS through the bundled cloudflared Quick Tunnel to a random loopback listener. A detached worker closes its owned tunnel on Host exit or IPC loss. Startup probes the public endpoint against a random instance proof before exposing invitations. Internet invitations use the explicit `PB2-` secure marker; legacy codes remain LAN-only. The Client validates the approved viewer origin against its invitation and never downgrades HTTPS.
 
-Client file transfers use native file dialogs and streams in the client main process. The approved stream credential authenticates fixed `/api/files/` operations on the existing host port. The host replaces that credential with a separate per-container secret and streams requests to a small Python file service on container port 9090, published only to host loopback. That service runs as UID 1000 and confines uploads/downloads to the workspace's two folders, without host mounts. Uploads are streamed into temporary files and published with collision-safe names; local saves are renamed into the user-selected destination only after successful completion. Client disconnect and host stop close active transfer requests. The native client needs no Python or Docker installation.
+Client file transfers use native file dialogs and streams in the client main process. The approved stream credential authenticates fixed `/api/files/` operations on the existing host port. The host replaces that credential with a separate per-container secret and streams requests to a small Python file service on container port 9090, published only to host loopback. That service runs as UID 1000 and confines uploads/downloads to the workspace's two folders, without host mounts. Internet uploads use ordered 4 MiB requests to avoid relay body limits; LAN uploads use one streamed PUT. Uploads are streamed into temporary files and published with collision-safe names; local saves are renamed into the user-selected destination only after successful completion. Client disconnect and host stop close active transfer requests. The native client needs no Python or Docker installation.
 
 | Client action | Flow |
 | --- | --- |
@@ -17,42 +17,17 @@ Client file transfers use native file dialogs and streams in the client main pro
 
 ## System Architecture
 
+```text
+Client EXE -- HTTPS/WSS --> Cloudflare Quick Tunnel
+                                  | encrypted outbound tunnel
+Host EXE <-- random loopback port -- bundled cloudflared
+    | authenticated HTTP / WebSocket proxy
+    +--> loopback Docker KasmVNC --> isolated Chrome / X11
+    +--> loopback file service --> workspace Uploads / Downloads
+Private host setup --> separate authenticated loopback listener
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                     HOST PC (Windows 11)                      │
-│                                                               │
-│  ┌─────────────────────┐    ┌────────────────────────────┐   │
-│  │  ParallelBrowser     │    │  Docker Desktop (WSL2)      │   │
-│  │  Host App            │    │                              │   │
-│  │  (Electron)          │    │  ┌────────────────────────┐ │   │
-│  │                      │────│─>│  kasmweb/chrome         │ │   │
-│  │  • Session Manager   │    │  │  Container              │ │   │
-│  │  • Docker Service    │    │  │                          │ │   │
-│  │  • WebSocket Server  │    │  │  • Chromium Browser      │ │   │
-│  │  • Auth/Token Mgmt   │    │  │  • KasmVNC Server        │ │   │
-│  │                      │    │  │  • Virtual X11 Display   │ │   │
-│  └────────┬─────────────┘    │  └────────────────────────┘ │   │
-│           │                   └────────────────────────────┘   │
-│           │ WebSocket (port 9500)                              │
-│           │ Binds to Tailscale IP or 0.0.0.0                  │
-└───────────┼──────────────────────────────────────────────────┘
-            │
-            │  Encrypted tunnel (Tailscale/WireGuard)
-            │  or LAN connection
-            │
-┌───────────┼──────────────────────────────────────────────────┐
-│           │                  CLIENT PC (Windows)              │
-│  ┌────────┴─────────────┐                                    │
-│  │  ParallelBrowser      │                                    │
-│  │  Client App           │                                    │
-│  │  (Electron)           │                                    │
-│  │                       │                                    │
-│  │  • Connection Service │                                    │
-│  │  • VNC Viewer Canvas  │                                    │
-│  │  • Input Handler      │                                    │
-│  └───────────────────────┘                                    │
-└──────────────────────────────────────────────────────────────┘
-```
+
+The Client sees only the container display. Cloudflare terminates TLS. Local network mode bypasses the tunnel and uses HTTP/WebSocket on port 9500. See [internet sharing](internet-sharing.md).
 
 ## Component Details
 
@@ -65,7 +40,8 @@ Client file transfers use native file dialogs and streams in the client main pro
 | Docker Service | `src/services/docker-service.ts` | Container lifecycle, image management, resource monitoring |
 | Session Manager | `src/services/session-manager.ts` | Session state, token generation, config management |
 | WebSocket Server | `src/services/websocket-server.ts` | Client connections, auth, VNC relay |
-| Dependency Checker | `src/services/dependency-checker.ts` | Docker/Tailscale/WSL detection |
+| Internet Tunnel | `src/services/internet-tunnel.ts`, `tunnel-worker.ts` | Verified bundled helper, readiness probe and owned-process cleanup |
+| Dependency Checker | `src/services/dependency-checker.ts` | Docker/WSL detection |
 | Renderer | `src/renderer/` | Dashboard UI (vanilla HTML/CSS/JS) |
 
 ### Client Application (`client-app/`)
@@ -85,38 +61,17 @@ Client file transfers use native file dialogs and streams in the client main pro
 | Protocol | `src/protocol.ts` | WebSocket message types and serialization |
 | Crypto | `src/crypto.ts` | Token generation, HMAC verification, invitation codes |
 
-## Connection Flow
+## Connection and input flow
 
-```
-1. Host starts → Docker container created → KasmVNC starts on port 6901 (inside container)
-2. Docker maps container:6901 → localhost:6901 (host only)
-3. Host generates session token → encodes into invitation code
-4. Host starts WebSocket server on port 9500
-
-5. Client receives invitation code → decodes → connects WebSocket to host:9500
-6. Client sends AUTH_REQUEST with token
-7. Host verifies token → prompts host user for approval
-8. Host user approves → APPROVAL_GRANTED sent to client
-
-9. Host opens TCP connection to localhost:6901 (KasmVNC)
-10. Binary VNC data relayed: Client ↔ WebSocket ↔ Host ↔ TCP ↔ Container VNC
-```
-
-## Data Flow for Input
-
-```
-Client mouse click on canvas
-    → Captured as VNC pointer event
-    → Sent as binary WebSocket message to host
-    → Host relays to container's KasmVNC TCP socket
-    → KasmVNC processes click inside container's virtual X11
-    → Chromium browser receives click event
-    → Container screen updates
-    → VNC framebuffer update sent back through relay
-    → Client canvas renders updated frame
-```
-
-**Critical point**: At NO stage does any input event touch the host's Windows desktop, mouse driver, or keyboard driver.
+1. Host creates its owned Docker workspace. KasmVNC and file service ports are published only to loopback.
+2. Internet mode starts a random loopback Host listener plus the bundled tunnel. Host verifies the public HTTPS endpoint. Local mode instead listens on LAN port 9500.
+3. After any private setup, Host creates an expiring invitation containing an address and random authentication token.
+4. Client opens WSS for a secure invitation, or WS for a legacy LAN invitation, at `/control` and submits the token.
+5. Host validates the token, displays the pending request and waits for manual approval. Until approval, browser and file requests receive 403.
+6. Approval consumes the invitation and issues a separate random stream token. Client validates the stream origin against its invitation and attaches an isolated KasmVNC webview.
+7. A bootstrap request establishes the HttpOnly stream cookie. Subsequent authenticated HTTP assets and WebSocket upgrades are proxied to KasmVNC with private backend credentials.
+8. KasmVNC's web viewer sends input over its WebSocket to the container display. Chrome handles the input inside X11 and returns framebuffer updates. Windows desktop input APIs are never called.
+9. Disconnect revokes access and closes active stream/file connections. Imported-profile sessions also remove their temporary workspace. Host stop closes the tunnel and removes its workspace.
 
 ## Profile preparation and lifetime
 
@@ -133,9 +88,9 @@ The client main process assigns each approved connection a random in-memory Elec
 | Choice | Technology | Rationale |
 |--------|-----------|-----------|
 | Container | Docker + kasmweb/chrome | Battle-tested isolation, maintained image, built-in VNC |
-| VPN | Tailscale | Zero-config WireGuard, no port forwarding needed |
+| Internet transport | Bundled cloudflared Quick Tunnel | No client installation, account or port forwarding; best-effort preview service |
 | Desktop Framework | Electron | Cross-platform, native installers, embedded web views |
 | Language | TypeScript | Type safety, refactoring support, modern JS features |
-| VNC Protocol | Raw TCP relay | Simplest, most reliable approach for MVP |
+| Display protocol | KasmVNC web viewer | Authenticated HTTP assets and WebSocket upgrades; independent container input |
 | UI | Vanilla HTML/CSS/JS | No build complexity for renderer, fast iteration |
 | Installer | electron-builder + NSIS | Industry standard for Electron Windows installers |

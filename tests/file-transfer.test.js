@@ -109,6 +109,8 @@ test('File API requires current approval, rejects cookies/foreign origins and ov
     assert.equal(await call(base, 'downloads', { Cookie: 'pb_stream=' + access }), 403);
     assert.equal(await call(base, 'downloads', { ...headers, Origin: 'http://evil.example' }), 403);
     assert.equal(await call(base, 'downloads', headers), 200);
+    assert.equal(await call(base, 'upload-start?name=empty&size=0', { ...headers, 'Transfer-Encoding': 'chunked' }, 'PUT'), 200);
+    assert.equal(await call(base, 'upload-part?id=abc&offset=0', { ...headers, 'Content-Length': 4194305 }, 'PUT'), 413);
     assert.equal(await call(base, 'upload?name=a', { ...headers, 'Content-Length': 1073741825 }, 'PUT'), 413);
     const revoked = new Promise((resolve, reject) => {
       http.get(base + '/api/files/download?name=slow', { headers }, response => {

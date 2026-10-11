@@ -23,6 +23,7 @@ fs.mkdirSync(out, { recursive: true });
     await hp.screenshot({ path: path.join(out, 'host-system-check-mock.png') });
     await hp.locator('#btn-recheck').click();
     await hp.locator('#btn-continue-setup:not([disabled])').click();
+    await hp.locator('#connection-mode').selectOption(process.env.PB_QA_INTERNET === '1' ? 'internet' : 'lan');
     await host.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 550));
     for (const id of ['btn-start-browser', 'btn-generate-invite']) {
       assert.ok(await hp.locator('#' + id).evaluate(element => {

@@ -1,0 +1,5 @@
+cloudflared 2026.10.0 (unmodified Windows amd64 distribution)
+Source and releases: https://github.com/cloudflare/cloudflared
+Copyright Cloudflare, Inc. and contributors; licensed under Apache License 2.0.
+Full license: cloudflared-LICENSE.txt
+Bundled SHA-256: 86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c

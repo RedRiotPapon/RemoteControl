@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   'use strict';
   const $ = id => document.getElementById(id);
   let config, session, busy = false, ready = false;
+  let sharing = { state: 'idle', message: 'Internet sharing starts automatically with the browser.' };
   const notice = (message, error = false) => {
     $('host-notice').textContent = message;
     $('host-notice').className = 'notice' + (error ? ' error' : '');
@@ -24,11 +25,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('stat-resolution').textContent = active ? `${info.browserResolution.width} × ${info.browserResolution.height}` : '—';
     $('btn-start-browser').disabled = busy || transitioning || active || !ready;
     $('btn-stop-browser').disabled = busy || transitioning || (!active && !(info.status === 'error' && info.containerName));
-    $('btn-generate-invite').disabled = busy || info.status !== 'running' || info.hostSetupRequired;
+    $('btn-generate-invite').disabled = busy || info.status !== 'running' || info.hostSetupRequired || sharing.state !== 'ready';
+    $('connection-mode').disabled = busy || transitioning || active;
+    $('sharing-status').textContent = sharing.state === 'idle'
+      ? ($('connection-mode').value === 'lan' ? 'Local sharing starts with the browser. Both PCs must be on the same network.' : 'Internet sharing starts with the browser. No extra network tools are needed.')
+      : sharing.message;
     $('invite-help').textContent = info.status === 'starting' ? 'Preparing the browser. Your invitation will be available when it is ready.'
       : info.hostSetupRequired ? 'Finish private setup and sign in yourself before generating an invitation.'
       : info.status === 'client_pending' ? 'Your client is waiting. Review their request in Client Connection below.'
       : info.status === 'client_connected' ? 'Your client is connected. Stop the session when you are finished.'
+      : info.status === 'running' && sharing.state === 'connecting' ? 'Connecting internet sharing. Your invitation will be available shortly.'
+      : info.status === 'running' && sharing.state === 'error' ? 'Sharing is unavailable. Stop and restart the browser to try again.'
       : info.status === 'running' ? 'Generate an invitation, copy it and send it to your client. You approve them after they connect.'
       : info.status === 'stopping' ? 'Stopping the browser and removing its temporary data.'
       : 'Choose a browser profile below, then click “1. Start Browser”. An invitation is available after the browser starts.';
@@ -72,25 +79,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('btn-recheck').disabled = true;
     $('btn-continue-setup').disabled = true;
     ready = false;
-    for (const id of ['dep-docker', 'dep-tailscale']) $(id).querySelector('.dep-status').textContent = 'Checking…';
+    $('dep-docker').querySelector('.dep-status').textContent = 'Checking…';
     try {
       const deps = await window.hostAPI.checkDependencies();
       ready = deps.docker.installed && deps.docker.running;
       $('dep-docker').querySelector('.dep-icon').textContent = ready ? '✓' : '!';
       $('dep-docker').querySelector('.dep-status').textContent = ready ? 'Running' : deps.docker.installed ? 'Start Docker Desktop, then re-check' : 'Install Docker Desktop with WSL2';
-      $('dep-tailscale').querySelector('.dep-icon').textContent = deps.tailscale.connected ? '✓' : '○';
-      $('dep-tailscale').querySelector('.dep-status').textContent = deps.tailscale.connected ? `Connected · ${deps.tailscale.ip}` : 'Optional on LAN; connect both PCs for internet use';
       $('btn-continue-setup').disabled = !ready;
     } catch (error) { notice(`System check failed: ${error.message}`, true); }
     finally { $('btn-recheck').disabled = false; if (session) renderSession(session); }
   }
   $('btn-recheck').addEventListener('click', checkDependencies);
+  $('connection-mode').addEventListener('change', () => { if (session) renderSession(session); });
   $('btn-continue-setup').addEventListener('click', () => {
     $('screen-setup').classList.remove('active');
     $('screen-dashboard').classList.add('active');
   });
   $('btn-start-browser').addEventListener('click', () => action(async () => {
-    const result = await invoke('startBrowser', config, $('chrome-profile').value || undefined);
+    const result = await invoke('startBrowser', config, $('chrome-profile').value || undefined, $('connection-mode').value);
     if (result.cancelled) { notice('Profile sharing cancelled. No profile data was copied.'); return; }
     renderSession(result.session);
     notice(result.session.hostSetupRequired ? 'Temporary profile ready. Open private setup and sign in yourself before inviting the client.' : 'Browser ready. Generate an invitation, then approve your client.');
@@ -118,7 +124,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('btn-generate-invite').addEventListener('click', () => action(async () => {
     const result = await invoke('generateInvitation');
     $('invitation-code').textContent = result.invitation;
-    $('tailscale-ip').textContent = result.hostIp;
+    $('host-address').textContent = result.hostIp;
     $('invitation-section').style.display = 'flex';
     $('invitation-section').scrollIntoView({ block: 'nearest' });
     notice('Invitation ready. It expires in 60 minutes and works for one approved connection.');
@@ -174,6 +180,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     catch (error) { $('settings-error').textContent = error.message; }
   });
   window.hostAPI.onSessionUpdate(renderSession);
+  window.hostAPI.onSharingUpdate(info => { sharing = info; if (session) renderSession(session); });
   window.hostAPI.onApprovalRequested(info => {
     $('pending-client-name').textContent = info.clientName;
     $('approval-section').style.display = 'block';
@@ -204,6 +211,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }, 1000);
   try {
     config = await window.hostAPI.getConfig();
+    sharing = await window.hostAPI.getSharingInfo();
     renderSession(await window.hostAPI.getSessionInfo());
     await checkDependencies();
     try { await refreshProfiles(); } catch (error) { notice(error.message, true); }

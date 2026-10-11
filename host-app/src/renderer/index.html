@@ -40,10 +40,10 @@
             <span class="dep-label">Docker Desktop</span>
             <span class="dep-status">Checking...</span>
           </div>
-          <div class="dep-item" id="dep-tailscale">
-            <span class="dep-icon">⏳</span>
-            <span class="dep-label">Tailscale VPN</span>
-            <span class="dep-status">Checking...</span>
+          <div class="dep-item">
+            <span class="dep-icon">✓</span>
+            <span class="dep-label">Internet sharing</span>
+            <span class="dep-status">Included in this app. No VPN installation needed.</span>
           </div>
         </div>
         <button id="btn-recheck" class="btn btn-secondary">Re-check</button>
@@ -55,6 +55,9 @@
     <section id="screen-dashboard" class="screen">
       <div class="card share-card" aria-labelledby="share-title">
         <h2 id="share-title">Invite a client</h2>
+        <div class="sharing-mode"><label for="connection-mode">Connect through</label>
+          <select id="connection-mode"><option value="internet">Internet — no extra installation</option><option value="lan">Local network — same Wi-Fi / LAN</option></select></div>
+        <p id="sharing-status" class="text-small text-muted" role="status">Internet sharing starts automatically with the browser.</p>
         <p id="invite-help" class="text-small text-muted" role="status">Choose a browser profile below, then start the browser to create an invitation.</p>
         <div class="share-actions">
           <button id="btn-start-browser" class="btn btn-primary">1. Start Browser</button>
@@ -66,7 +69,7 @@
             <code id="invitation-code" tabindex="0" aria-label="Invitation code"></code>
             <button id="btn-copy-code" class="btn btn-primary">Copy invitation</button>
           </div>
-          <p class="text-small text-muted">You must approve their connection. Host address: <span id="tailscale-ip">—</span></p>
+          <p class="text-small text-muted">You must approve their connection. Host address: <span id="host-address">—</span></p>
         </div>
       </div>
       <div class="workspace-intro">

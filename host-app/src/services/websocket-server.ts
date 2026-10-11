@@ -22,9 +22,12 @@ export class WebSocketServer extends EventEmitter {
   private streamToken: string | null = null;
   private proxySockets = new Set<stream.Duplex>();
   private proxyRequests = new Set<http.ClientRequest>();
+  private fileInputs = new Set<http.IncomingMessage>();
   private hostSetupServer: http.Server | null = null;
   private hostSetupToken: string | null = null;
   private lastClientPong = 0;
+  private publicOrigin: string | null = null;
+  private readonly instance = randomBytes(16).toString('hex');
 
   constructor(private sessionManager: SessionManager) {
     super();
@@ -37,6 +40,14 @@ export class WebSocketServer extends EventEmitter {
 
   setHostIp(ip: string): void { this.hostIp = ip; }
   getPort(): number { return this.port; }
+  getConnectivityProof(): string { return this.instance; }
+  setPublicOrigin(origin: string | null): void {
+    if (origin !== null) {
+      const url = new URL(origin);
+      if (url.protocol !== 'https:' || url.origin !== origin || url.username || url.password) throw new Error('Invalid internet endpoint.');
+    }
+    this.publicOrigin = origin;
+  }
 
   async openHostSetup(): Promise<string> {
     this.closeHostSetup();
@@ -62,7 +73,7 @@ export class WebSocketServer extends EventEmitter {
     this.clearStream();
   }
 
-  async start(): Promise<void> {
+  async start(localOnly = false): Promise<void> {
     if (this.httpServer) return;
     const server = http.createServer((req, res) => this.handleHttpRequest(req, res));
     // Large transfers may take more than Node's default five-minute body deadline.
@@ -73,18 +84,22 @@ export class WebSocketServer extends EventEmitter {
     this.wss = new WSServer({ noServer: true, maxPayload: 64 * 1024 });
     this.wss.on('connection', ws => this.handleConnection(ws));
     server.on('upgrade', (req, socket, head) => {
-      const pathname = new URL(req.url || '/', 'http://localhost').pathname;
+      let pathname: string;
+      try { pathname = new URL(req.url || '/', 'http://localhost').pathname; }
+      catch { socket.destroy(); return; }
       if (pathname === '/control' || (pathname === '/' && !this.isStreamAuthorized(req))) {
+        if ((this.wss?.clients.size || 0) >= 16) { socket.destroy(); return; }
         this.wss?.handleUpgrade(req, socket, head, ws => this.wss?.emit('connection', ws));
       } else this.handleProxyWsUpgrade(req, socket, head);
     });
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(this.port, '0.0.0.0', resolve);
+      server.listen(localOnly ? 0 : this.port, localOnly ? '127.0.0.1' : '0.0.0.0', resolve);
     }).catch(error => {
       this.wss?.close(); this.wss = null; this.httpServer = null;
       server.close(); throw error;
     });
+    this.port = (server.address() as import('net').AddressInfo).port;
     server.on('error', error => this.emit('server-error', error.message));
     this.heartbeatInterval = setInterval(() => {
       if (this.connectedClient?.readyState === WS.OPEN) {
@@ -96,6 +111,7 @@ export class WebSocketServer extends EventEmitter {
   }
 
   stop(): void {
+    this.publicOrigin = null;
     this.closeHostSetup();
     this.disconnectClient();
     if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
@@ -137,7 +153,7 @@ export class WebSocketServer extends EventEmitter {
     this.streamToken = randomBytes(32).toString('hex');
     const payload: ApprovalGrantedPayload = {
       sessionId: this.sessionManager.getSessionInfo().sessionId,
-      streamUrl: `http://${this.hostIp}:${this.port}/stream/?access=${this.streamToken}`,
+      streamUrl: `${this.publicOrigin || `http://${this.hostIp}:${this.port}`}/stream/?access=${this.streamToken}`,
       hostAddress: this.hostIp, port: this.port,
       vncConfig: { width: this.sessionManager.getConfig().browserWidth,
         height: this.sessionManager.getConfig().browserHeight },
@@ -210,18 +226,20 @@ export class WebSocketServer extends EventEmitter {
 
   private handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse, privateView = false): void {
     req.setTimeout(60000, () => req.destroy());
-    const url = new URL(req.url || '/', 'http://localhost');
+    let url: URL;
+    try { url = new URL(req.url || '/', 'http://localhost'); }
+    catch { res.writeHead(400); res.end('Invalid request.'); return; }
     res.setHeader('Cache-Control', 'no-store');
     if (!privateView && url.pathname === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ status: 'ok' })); return;
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ status: 'ok', instance: this.instance })); return;
     }
     if (!privateView && url.pathname.startsWith('/api/files/')) {
-      this.handleFileRequest(req, res, url); return;
+      void this.handleFileRequest(req, res, url).catch(() => res.destroy()); return;
     }
     const setupAccess = url.searchParams.get('access');
     const hostBootstrap = privateView && !!this.hostSetupToken && !!setupAccess && /^[a-f0-9]{64}$/.test(setupAccess) && timingSafeEqual(Buffer.from(setupAccess), Buffer.from(this.hostSetupToken));
     if (url.pathname === '/stream/' && (hostBootstrap || (!privateView && this.connectedClient?.readyState === WS.OPEN && this.tokenMatches(setupAccess)))) {
-      const cookie = privateView ? `pb_host_setup=${this.hostSetupToken}` : `pb_stream=${this.streamToken}`;
+      const cookie = (privateView ? `pb_host_setup=${this.hostSetupToken}` : `pb_stream=${this.streamToken}`) + (!privateView && this.publicOrigin ? '; Secure' : '');
       res.writeHead(302, { Location: '/', 'Set-Cookie': `${cookie}; HttpOnly; SameSite=Strict; Path=/` });
       res.end(); return;
     }
@@ -251,7 +269,7 @@ export class WebSocketServer extends EventEmitter {
     req.pipe(proxy);
   }
 
-  private handleFileRequest(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
+  private async handleFileRequest(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
     const fail = (status: number, error: string) => {
       res.writeHead(status, { 'Content-Type': 'application/json', Connection: 'close' });
       res.end(JSON.stringify({ error }));
@@ -263,11 +281,35 @@ export class WebSocketServer extends EventEmitter {
     }
     const route = url.pathname.slice('/api/files'.length);
     if (!((req.method === 'GET' && ['/downloads', '/download'].includes(route)) ||
-      (req.method === 'PUT' && route === '/upload'))) { fail(405, 'Unknown file operation.'); return; }
+      (req.method === 'PUT' && ['/upload', '/upload-start', '/upload-part', '/upload-finish', '/upload-cancel'].includes(route)))) { fail(405, 'Unknown file operation.'); return; }
+    let body: Buffer | undefined;
+    const credential = this.streamToken;
     if (req.method === 'PUT') {
-      const size = Number(req.headers['content-length']);
-      if (!Number.isSafeInteger(size) || size < 0 || size > MAX_UPLOAD_BYTES || req.headers['transfer-encoding']) {
+      const limit = route === '/upload' ? MAX_UPLOAD_BYTES : route === '/upload-part' ? 4 * 1024 * 1024 : 0;
+      const chunked = req.headers['transfer-encoding'] === 'chunked';
+      const size = Number(req.headers['content-length'] ?? (route !== '/upload' ? 0 : NaN));
+      if (!Number.isSafeInteger(size) || size < 0 || size > limit ||
+          (req.headers['transfer-encoding'] && (!chunked || route === '/upload'))) {
         fail(413, 'Uploads must be at most 1 GiB.'); return;
+      }
+      if (route !== '/upload') {
+        // Cloudflare may change Content-Length to chunked encoding. Buffer only
+        // one bounded part, then supply an exact length to the private agent.
+        if (this.fileInputs.size >= 4) { fail(429, 'Too many active file transfers. Try again shortly.'); return; }
+        this.fileInputs.add(req);
+        const blocks: Buffer[] = []; let received = 0;
+        try {
+          for await (const block of req) {
+            received += block.length;
+            if (received > limit) { fail(413, 'Upload part is too large.'); return; }
+            blocks.push(block);
+          }
+        } finally { this.fileInputs.delete(req); }
+        body = Buffer.concat(blocks);
+        // Approval may have been revoked while the request body was arriving.
+        if (this.streamToken !== credential || this.connectedClient?.readyState !== WS.OPEN) {
+          fail(403, 'File access requires an approved client connection.'); return;
+        }
       }
     }
     const endpoint = this.sessionManager.getFileEndpoint();
@@ -275,7 +317,7 @@ export class WebSocketServer extends EventEmitter {
     const proxy = http.request({ hostname: '127.0.0.1', port: endpoint.port,
       method: req.method, path: route + url.search,
       headers: { Authorization: `Bearer ${endpoint.token}`,
-        ...(req.method === 'PUT' ? { 'Content-Length': req.headers['content-length'] } : {}) },
+        ...(req.method === 'PUT' ? { 'Content-Length': body ? body.length : req.headers['content-length'] || '0' } : {}) },
     }, response => {
       if (res.destroyed) { response.destroy(); return; }
       res.writeHead(response.statusCode || 502, {
@@ -295,7 +337,7 @@ export class WebSocketServer extends EventEmitter {
       if (!res.headersSent) fail(502, 'File transfer interrupted. Reconnect or ask the host to restart the workspace.');
       else res.destroy();
     });
-    req.pipe(proxy);
+    if (body) proxy.end(body); else req.pipe(proxy);
   }
 
   private backendHeaders(req: http.IncomingMessage, port: number): http.OutgoingHttpHeaders {
@@ -314,7 +356,8 @@ export class WebSocketServer extends EventEmitter {
 
   private handleProxyWsUpgrade(req: http.IncomingMessage, socket: stream.Duplex, head: Buffer, privateView = false): void {
     const port = this.sessionManager.getVNCPort(), origin = req.headers.origin;
-    if (!port || !(privateView ? this.isHostAuthorized(req) : this.isStreamAuthorized(req)) || (origin && origin !== `http://${req.headers.host}`)) {
+    const expectedOrigin = !privateView && this.publicOrigin ? this.publicOrigin : `http://${req.headers.host}`;
+    if (!port || !(privateView ? this.isHostAuthorized(req) : this.isStreamAuthorized(req)) || (origin && origin !== expectedOrigin)) {
       socket.destroy(); return;
     }
     const upstream = process.env.PB_TEST_MODE === '1' ? http : https;
@@ -355,6 +398,8 @@ export class WebSocketServer extends EventEmitter {
 
   private clearStream(): void {
     this.streamToken = null;
+    for (const input of this.fileInputs) input.destroy();
+    this.fileInputs.clear();
     for (const socket of this.proxySockets) socket.destroy();
     this.proxySockets.clear();
     for (const request of this.proxyRequests) request.destroy();

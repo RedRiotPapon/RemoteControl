@@ -7,6 +7,7 @@ import { DependencyChecker } from '../services/dependency-checker';
 import { SessionConfig, getBestHostIP } from '@parallelbrowser/shared';
 import { ChromeProfiles, ProfileSnapshot } from '../services/chrome-profiles';
 import { randomBytes } from 'crypto';
+import { InternetTunnel } from '../services/internet-tunnel';
 
 let mainWindow: BrowserWindow | null = null;
 let dockerService: DockerService;
@@ -15,6 +16,13 @@ let wsServer: WebSocketServer;
 let setupWindow: BrowserWindow | null = null;
 const profiles = new ChromeProfiles();
 let startingBrowser = false;
+let internetTunnel: InternetTunnel;
+let sharingMode: 'internet' | 'lan' = 'internet';
+let connectionInfo = { mode: 'internet', state: 'idle', endpoint: '', message: 'Internet sharing starts automatically with the browser.' };
+function connectionStatus(state: string, endpoint = '', message = '') {
+  connectionInfo = { mode: sharingMode, state, endpoint, message };
+  sendToRenderer('sharing-update', connectionInfo);
+}
 
 async function closePrivateSetup(): Promise<void> {
   wsServer.closeHostSetup();
@@ -74,6 +82,12 @@ function initializeServices(): void {
   dockerService = new DockerService();
   sessionManager = new SessionManager(dockerService);
   wsServer = new WebSocketServer(sessionManager);
+  internetTunnel = new InternetTunnel(app.isPackaged ? path.join(process.resourcesPath, 'tools/cloudflared.exe') : path.resolve(__dirname, '../../vendor/cloudflared.exe'));
+  internetTunnel.on('unavailable', () => {
+    wsServer.setPublicOrigin(null); sessionManager.revokeToken(); wsServer.disconnectClient();
+    connectionStatus('error', '', 'Internet sharing stopped. Stop and restart the browser to reconnect.');
+    sendToRenderer('server-error', connectionInfo.message);
+  });
 }
 
 function setupIPC(): void {
@@ -102,8 +116,11 @@ function setupIPC(): void {
   });
 
   // Session management
-  ipcMain.handle('start-browser', async (_event, config?: Partial<SessionConfig>, profileId?: string) => {
+  ipcMain.handle('get-sharing-info', () => connectionInfo);
+  ipcMain.handle('start-browser', async (_event, config?: Partial<SessionConfig>, profileId?: string, mode = 'internet') => {
     if (startingBrowser) return { success: false, error: 'A workspace is already being prepared.' };
+    if (!['internet', 'lan'].includes(mode)) return { success: false, error: 'Choose Internet or Local network sharing.' };
+    if (!['idle', 'error'].includes(sessionManager.getSessionInfo().status)) return { success: false, error: 'Stop the current browser before starting another session.' };
     startingBrowser = true;
     try {
       let profile: ProfileSnapshot | undefined;
@@ -116,22 +133,30 @@ function setupIPC(): void {
         if (approval.response !== 1) return { success: true, cancelled: true };
         profile = await profiles.snapshot(selected.id);
       }
+      await internetTunnel.stop(); wsServer.stop(); sharingMode = mode as 'internet' | 'lan';
+      connectionStatus('connecting', '', mode === 'internet' ? 'Preparing secure internet sharing…' : 'Preparing local network sharing…');
       const sessionConfig = { ...sessionManager.getConfig(), ...config };
       const session = await sessionManager.startSession(sessionConfig, { profile });
-      const checker = new DependencyChecker();
-      const deps = await checker.checkAll();
-      const hostIp = getBestHostIP(deps.tailscale.ip);
+      const hostIp = sharingMode === 'internet' ? '127.0.0.1' : getBestHostIP();
       sessionManager.setHostAddress(hostIp);
       wsServer.setHostIp(hostIp);
       try {
-        await wsServer.start();
+        await wsServer.start(sharingMode === 'internet');
+        if (sharingMode === 'internet') {
+          connectionStatus('connecting', '', 'Connecting to the internet sharing service…');
+          const origin = await internetTunnel.start(wsServer.getPort(), wsServer.getConnectivityProof());
+          wsServer.setPublicOrigin(origin);
+          connectionStatus('ready', origin, 'Internet sharing is ready. No VPN is needed on either PC.');
+        } else connectionStatus('ready', hostIp, 'Local network sharing is ready. Both PCs must be on the same network.');
       } catch (error) {
+        wsServer.stop(); await internetTunnel.stop();
         await sessionManager.stopSession();
         throw error;
       }
       sendToRenderer('session-update', session);
       return { success: true, session };
     } catch (error: any) {
+      connectionStatus('error', '', error.message);
       return { success: false, error: error.message };
     } finally {
       startingBrowser = false;
@@ -141,6 +166,7 @@ function setupIPC(): void {
   ipcMain.handle('stop-browser', async () => {
     try {
       wsServer.stop();
+      await internetTunnel.stop();
       await sessionManager.stopSession();
       sendToRenderer('session-update', sessionManager.getSessionInfo());
       return { success: true };
@@ -156,36 +182,19 @@ function setupIPC(): void {
   // Connection management
   ipcMain.handle('generate-invitation', async () => {
     try {
-      const checker = new DependencyChecker();
-      const deps = await checker.checkAll();
-      const hostIp = getBestHostIP(deps.tailscale.ip);
+      if (connectionInfo.state !== 'ready') throw new Error('Wait for sharing to become ready. If it failed, stop and restart the browser.');
+      if (sharingMode === 'internet') {
+        const origin = internetTunnel.getOrigin();
+        if (!origin) throw new Error('Internet sharing is unavailable. Restart the browser session.');
+        const url = new URL(origin);
+        const invitation = await sessionManager.generateInvitation(url.hostname, 443, true);
+        return { success: true, invitation, hostIp: url.hostname };
+      }
+      const hostIp = getBestHostIP();
       sessionManager.setHostAddress(hostIp);
       wsServer.setHostIp(hostIp);
-      const invitation = await sessionManager.generateInvitation(hostIp);
+      const invitation = await sessionManager.generateInvitation(hostIp, wsServer.getPort());
       return { success: true, invitation, hostIp };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  });
-
-  ipcMain.handle('start-server', async () => {
-    try {
-      const checker = new DependencyChecker();
-      const deps = await checker.checkAll();
-      const hostIp = getBestHostIP(deps.tailscale.ip);
-      sessionManager.setHostAddress(hostIp);
-      wsServer.setHostIp(hostIp);
-      await wsServer.start();
-      return { success: true, port: wsServer.getPort(), hostIp };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  });
-
-  ipcMain.handle('stop-server', async () => {
-    try {
-      wsServer.stop();
-      return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -208,12 +217,6 @@ function setupIPC(): void {
     } catch (error: any) {
       return { success: false, error: error.message };
     }
-  });
-
-  ipcMain.handle('get-tailscale-ip', async () => {
-    const checker = new DependencyChecker();
-    const deps = await checker.checkAll();
-    return deps.tailscale.ip;
   });
 
   // Settings
@@ -239,7 +242,10 @@ function setupEventForwarding(): void {
   // Forward session manager events to renderer
   sessionManager.on('session-update', (info) => sendToRenderer('session-update', info));
   sessionManager.on('session-update', info => {
-    if (['stopping', 'idle', 'error'].includes(info.status)) void closePrivateSetup().catch(() => {});
+    if (['stopping', 'idle', 'error'].includes(info.status)) {
+      void closePrivateSetup().catch(() => {});
+      void internetTunnel.stop(); wsServer.setPublicOrigin(null); connectionStatus('idle');
+    }
   });
   sessionManager.on('cleanup-error', error => sendToRenderer('server-error', `Workspace cleanup needs a retry: ${error}`));
   sessionManager.on('resource-update', (usage) => sendToRenderer('resource-update', usage));
@@ -249,6 +255,7 @@ function setupEventForwarding(): void {
     sendToRenderer('client-connecting', clientInfo);
     // Show approval dialog
     if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.flashFrame(true);
       sendToRenderer('approval-requested', clientInfo);
     }
@@ -275,6 +282,7 @@ app.on('before-quit', (event) => {
   void (async () => {
   try {
     wsServer?.stop();
+    await internetTunnel?.stop();
     await sessionManager?.stopSession();
   } catch (e) {
     console.error('Cleanup error:', e);

@@ -2,9 +2,11 @@
 **/node_modules/
 **/dist/
 **/release/
+/host-app/vendor/
 /installer/*.exe
 /installer/*.blockmap
 /installer/*.zip
+/installer/SHA256SUMS.txt
 
 # Old JavaScript emitted beside the canonical TypeScript services
 /host-app/src/services/*.js

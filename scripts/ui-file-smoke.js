@@ -49,9 +49,10 @@ async function title(container, expected) {
   try {
     const host = await _electron.launch({ executablePath: packaged ? path.join(root, 'host-app/release/win-unpacked/ParallelBrowser Host.exe') : require(path.join(root, 'host-app/node_modules/electron')),
       args: packaged ? [] : [path.join(root, 'host-app/dist/main/index.js')], env }); apps.push(host);
-    const hp = await host.firstWindow(); hp.setDefaultTimeout(90000); hp.on('pageerror', e => errors.push(e.message));
+    const hp = await host.firstWindow(); hp.setDefaultTimeout(180000); hp.on('pageerror', e => errors.push(e.message));
     await hp.locator('#btn-recheck:not([disabled])').waitFor(); await hp.locator('#btn-recheck').click();
     await hp.locator('#btn-continue-setup:not([disabled])').click();
+    await hp.locator('#connection-mode').selectOption(process.env.PB_QA_INTERNET === '1' ? 'internet' : 'lan');
     await hp.locator('#btn-settings').click(); await hp.locator('#setting-width').fill('1280');
     await hp.locator('#setting-height').fill('720'); await hp.locator('#setting-duration').fill('0');
     await hp.locator('#btn-save-settings').click(); await hp.locator('#btn-start-browser').click();
@@ -59,6 +60,16 @@ async function title(container, expected) {
     await hp.locator('#invitation-section').waitFor({ state: 'visible' });
     console.log('Workspace started.');
     const code = await hp.locator('#invitation-code').textContent();
+    if (process.env.PB_QA_INTERNET === '1') {
+      const { parseInvitationCode } = require('../shared/dist');
+      const invite = parseInvitationCode(code); assert.equal(invite.secure, true);
+      const https = require('node:https');
+      for (const route of ['/', '/api/files/downloads']) {
+        const status = await new Promise((resolve, reject) => https.get(`https://${invite.hostAddress}${route}`,
+          response => { response.resume(); response.on('end', () => resolve(response.statusCode)); }).on('error', reject));
+        assert.equal(status, 403, 'Public content must require approval');
+      }
+    }
     const client = await _electron.launch({ executablePath: packaged ? path.join(root, 'client-app/release/win-unpacked/ParallelBrowser Client.exe') : require(path.join(root, 'client-app/node_modules/electron')),
       args: packaged ? [] : [path.join(root, 'client-app/dist/main/index.js')], env }); apps.push(client);
     const cp = await client.firstWindow(); cp.setDefaultTimeout(60000); cp.on('pageerror', e => errors.push(e.message));
@@ -104,6 +115,18 @@ async function title(container, expected) {
       assert.equal(fs.existsSync(saved), false);
       const empty = path.join(directory, 'empty.bin'); fs.writeFileSync(empty, '');
       assert.equal((await bridge.upload(empty)).size, 0);
+      if (process.env.PB_QA_LARGE === '1') {
+        const large = path.join(directory, 'large.bin'), size = 105 * 1024 * 1024;
+        const descriptor = fs.openSync(large, 'w'); fs.ftruncateSync(descriptor, size); fs.closeSync(descriptor);
+        assert.equal((await bridge.upload(large)).size, size);
+        const remote = docker(['exec', container, 'python3', '-c', "import os; print(os.path.getsize('/home/kasm-user/Uploads/large.bin'))"]).trim();
+        assert.equal(Number(remote), size);
+        const expected = createHash('sha256'), zeros = Buffer.alloc(1024 * 1024);
+        for (let index = 0; index < 105; index++) expected.update(zeros);
+        const digest = docker(['exec', container, 'python3', '-c', "import hashlib; h=hashlib.sha256(); f=open('/home/kasm-user/Uploads/large.bin','rb'); [h.update(b) for b in iter(lambda: f.read(1048576), b'')]; print(h.hexdigest())"]).trim();
+        assert.equal(digest, expected.digest('hex'));
+        console.log('PASS: upload above 100 MiB through public HTTPS with bounded chunks.');
+      }
       console.log('PASS: real agent rejects traversal/symlinks, omits folders/partial downloads, and accepts empty files.');
     } finally { bridge.clear(); }
 

@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const { DependencyChecker } = require('../host-app/dist/services/dependency-checker');
 
 describe('Dependency Checker', () => {
-  test('checkAll returns valid status structure with docker, tailscale, and wsl', async () => {
+  test('checkAll returns valid status structure with docker and wsl', async () => {
     const checker = new DependencyChecker();
     const result = await checker.checkAll();
 
@@ -12,9 +12,6 @@ describe('Dependency Checker', () => {
     assert.strictEqual(typeof result.docker.installed, 'boolean');
     assert.strictEqual(typeof result.docker.running, 'boolean');
 
-    assert.strictEqual(typeof result.tailscale, 'object');
-    assert.strictEqual(typeof result.tailscale.installed, 'boolean');
-    assert.strictEqual(typeof result.tailscale.connected, 'boolean');
 
     assert.strictEqual(typeof result.wsl, 'object');
     assert.strictEqual(typeof result.wsl.installed, 'boolean');

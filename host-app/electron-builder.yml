@@ -5,6 +5,11 @@ directories:
 files:
   - package.json
   - dist/**/*
+extraResources:
+  - from: vendor/cloudflared.exe
+    to: tools/cloudflared.exe
+  - from: third-party
+    to: third-party
 win:
   target:
     - target: nsis

@@ -4,6 +4,8 @@ The apps support an isolated browser with independent input, client file transfe
 
 ## Findings and repairs
 
+Version 1.1.0 adds bundled internet sharing without a VPN installation. Host approval, profile setup and client files work through public HTTPS/WSS. See [current validation](internet-validation.md) and [relay limits/privacy](internet-sharing.md). The earlier evidence below describes the browser/profile repairs that this release preserves.
+
 | Finding | Result |
 | --- | --- |
 | Host displayed Running even when startup returned `success: false` | Fixed: backend state drives the dashboard; failures appear inline |
@@ -77,6 +79,6 @@ Microsoft references: [Hyper-V requirements](https://learn.microsoft.com/virtual
 ## Remaining release limits
 
 - This release shares a temporary Linux browser, with portable Windows Chrome bookmark/settings import and fresh manual sign-in. Installed Windows apps, full-profile migration and Windows VM provisioning are not implemented.
-- LAN traffic is HTTP/WebSocket without TLS. Use Tailscale for encrypted remote transport. Do not expose port 9500 directly to the internet.
+- LAN traffic is HTTP/WebSocket without TLS. Use Internet mode for HTTPS/WSS through the bundled Cloudflare tunnel; see [relay trust and availability limits](internet-sharing.md). Do not expose port 9500 directly to the internet.
 - The existing Electron 28 runtime should be upgraded and retested before broad distribution. No runtime upgrade was bundled into this functional repair.
 - Docker bridge networking is not an egress firewall: the container may reach LAN/gateway services. Display/input isolation does not imply network isolation.

@@ -24,23 +24,9 @@ docker info
 # Should show "Server: ..." with no errors
 ```
 
-#### 2. Tailscale VPN (Both PCs — for Internet Connections)
+#### 2. Internet sharing (bundled)
 
-Tailscale creates an encrypted tunnel between your PCs without port forwarding.
-
-**Install:**
-1. Download from https://tailscale.com/download
-2. Install on BOTH the host PC and client PC
-3. Sign in with the same Tailscale account (or share a Tailnet)
-4. Note your Tailscale IP addresses
-
-**Verify:**
-```powershell
-tailscale status
-# Should show your device with an IP like 100.x.y.z
-```
-
-> **Note:** Tailscale is not required for LAN connections. If both PCs are on the same local network, you can use local IP addresses. However, Tailscale is strongly recommended for internet connections as it provides encryption.
+No networking software or account setup is required on either PC. Update both apps to 1.1.0+ and leave **Internet** selected. See [service limits, privacy and troubleshooting](internet-sharing.md).
 
 #### 3. Node.js and npm (For Building from Source)
 
@@ -62,7 +48,7 @@ The first time you start a browser session, Docker downloads `kasmweb/chrome:1.1
 
 For a client who wants to avoid installation, download **ParallelBrowser-Client-Portable.exe** from [GitHub Releases](https://github.com/RedRiotPapon/RemoteControl/releases/latest) and double-click it. Enter a name, paste the host's invitation and click **Connect**. The portable client bundles its runtime and does not need Docker, Node.js or Python. It may take a moment to extract and open. The optional Client Setup EXE performs a one-click per-user installation and opens the app when finished.
 
-The host still needs Docker Desktop. For different networks, the host should help the client connect through Tailscale once; the client app does not supply an internet relay. Windows may show a publisher warning because the current binaries are unsigned.
+The host still needs Docker Desktop. Internet sharing is included; the client needs no VPN or developer tools. Windows may show a publisher warning because the current binaries are unsigned.
 
 ### Option B: From Source
 
@@ -71,6 +57,7 @@ The host still needs Docker Desktop. For different networks, the host should hel
 cd ParallelBrowser
 npm run install:all
 npm run build:all
+npm run bundle:tunnel
 npm run start:host
 
 # On the client PC (copy the project or install separately)
@@ -84,7 +71,7 @@ npm run start:client
 
 ## Host and client workflow
 
-1. On the host, complete the dependency check and choose **Fresh browser** or an existing Windows Chrome profile. The profile list belongs to the Windows user running the Host app.
+1. On the host, complete the Docker check, leave **Internet** selected and choose **Fresh browser** or an existing Windows Chrome profile. The profile list belongs to the Windows user running the Host app.
 2. Click **Start Browser**. For a profile, review the native permission dialog and select **Allow temporary copy**. Cancelling does not copy the profile.
 3. For a selected profile, open **Private setup** and sign into the required Google account or websites yourself. Only bookmarks and basic settings are imported automatically; existing cookies, passwords, history, autofill and extensions are excluded.
 4. Return to the Host app, click **I've finished setup**, and confirm **Ready for client**. Merely closing the setup window does not enable invitations. Fresh browsers may also be prepared privately.
@@ -114,9 +101,11 @@ Access via the gear icon in the header:
 
 ### Network Configuration
 
-The host WebSocket server runs on port **9500** by default.
+Internet mode starts a bundled outbound tunnel and binds the Host listener to a random loopback port. No inbound router/firewall port needs opening. A `PB2-` invitation uses HTTPS/WSS. Private setup and Docker endpoints remain loopback-only.
 
-Allow TCP port 9500 between the intended PCs through Windows Firewall if it is blocked. Limit access to the trusted LAN or Tailscale interface. Tailscale provides encrypted transport between connected PCs; ordinary LAN mode uses HTTP/WebSocket without TLS. Do not forward port 9500 directly from the public internet.
+Local network mode uses port **9500**, HTTP/WebSocket without TLS, and no tunnel. Allow only trusted LAN peers through Windows Firewall. Never forward port 9500 to the public internet.
+
+See [internet sharing](internet-sharing.md) for outbound network requirements, relay privacy and availability limits.
 
 ## Troubleshooting
 
@@ -131,10 +120,9 @@ Allow TCP port 9500 between the intended PCs through Windows Firewall if it is b
 - Run `docker ps -a --filter name=parallelbrowser-session` to find the exact workspace name, then run `docker logs <exact-workspace-name>`.
 
 ### "Connection refused" or "Cannot connect"
-- Verify both PCs are on the same Tailscale network or LAN
-- Check that the host's WebSocket server is running (green status in host app)
-- Ensure no firewall is blocking port 9500
-- Try `ping <host-tailscale-ip>` from the client PC
+- Update both apps, select **Internet**, wait for **Internet sharing is ready**, and generate a new complete `PB2-` invitation.
+- For tunnel errors, follow [internet troubleshooting](internet-sharing.md).
+- In Local network mode, both PCs need a reachable trusted LAN and firewall access to port 9500.
 
 ### "Invalid invitation code"
 - Invitation codes expire after 60 minutes

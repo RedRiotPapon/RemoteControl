@@ -1,34 +1,35 @@
-# ParallelBrowser 1.0.1
+# ParallelBrowser 1.1.0
 
-The Host now puts **Start Browser**, **Generate Invitation** and **Copy invitation** at the top of its dashboard. Instructions explain why invitations are disabled while idle, starting or waiting for private setup. The controls fit without scrolling at the minimum 700 × 550 window size. When a client requests access, the Host scrolls their approval request into view.
+Host and Client now connect across different networks with **no Tailscale installation, VPN account or port forwarding**. The Host bundles its internet helper, checks connectivity and shows when sharing is ready. Docker Desktop remains required on the Host. Update **both apps** and generate a new invitation.
 
-Invitations are codes to paste into the Client app, not clickable join links. Choose a profile if needed, start the browser, finish any required private setup, then generate and copy the invitation. This update keeps the same client connection protocol.
+## Downloads
 
-## Which file to download
+- **ParallelBrowser-Client-Portable.exe** — recommended: download, double-click, enter a name, paste the invitation and Connect. No installation wizard, Docker, Node.js or Python on the client PC.
+- **ParallelBrowser-Client-Setup.exe** — optional one-click per-user installation, opens when finished.
+- **ParallelBrowser-Host-Setup.exe** — install on the PC providing the Docker browser.
+- **SHA256SUMS.txt** — SHA-256 checksums for all three EXEs.
 
-- **ParallelBrowser-Client-Portable.exe** — recommended for clients. Download and double-click; no installation wizard, Docker, Node.js, Python or administrator access is required by the app.
-- **ParallelBrowser-Client-Setup.exe** — optional one-click installation for clients who want an installed app. The app opens when installation finishes.
-- **ParallelBrowser-Host-Setup.exe** — install on the PC providing the browser. Docker Desktop with its Linux engine must be available on that PC.
-- **SHA256SUMS.txt** — checksums of the three EXE files.
+Windows x64. These builds are unsigned, so Windows may show a publisher/reputation warning. The portable Client extracts its bundled runtime before opening and may take a moment on first launch.
 
-Windows x64 builds. The binaries are currently unsigned, so Windows may show an unknown-publisher or reputation warning. The portable EXE extracts its bundled app into a temporary directory before opening; the first launch may take a moment.
+## Connect
 
-## Client: open, paste, connect
+1. Host: leave **Connect through → Internet** selected, choose a browser/profile and click **Start Browser**.
+2. Finish any required private profile setup. Wait for **Internet sharing is ready**.
+3. Click **Generate Invitation → Copy invitation** and send the complete `PB2-` code to your client.
+4. Client: paste the code and click **Connect**. Host: review the request and click **Approve**.
 
-1. Open **ParallelBrowser-Client-Portable.exe**.
-2. Enter your name and paste the invitation code sent by your host.
-3. Click **Connect** and wait for the host to approve.
+The invitation is a code for the Client app, not a clickable join link. It expires in 60 minutes and works for one approved connection. Start a new browser session and generate a new code if internet sharing stops. A **Local network** option remains for trusted LAN use.
 
-On the same local network, no VPN is required. For PCs on different networks, the host must help set up Tailscale on both PCs first. The app does not provide its own internet relay or bypass network/firewall restrictions.
+Client uploads use small sequential requests over HTTPS, preserving the 1 GiB per-file limit. Use **Upload from this PC**, then select the file from **Uploads** in the remote website's file picker. For browser downloads, open **Downloads → Save to this PC**.
 
-Use **Upload from this PC** to copy a local file to the browser's **Uploads** folder, then select it in the website's file picker. To keep a browser download, open **Downloads** and choose **Save to this PC**.
+## Service and profile limits
 
-## Host approval and temporary profiles
+Internet sharing uses a bundled **Cloudflare Quick Tunnel**, a best-effort preview service without an uptime SLA. Cloudflare terminates TLS; traffic is encrypted in transit but is not end-to-end encrypted between the PCs. See [service limits, privacy and troubleshooting](https://github.com/RedRiotPapon/RemoteControl/blob/main/docs/internet-sharing.md).
 
-The host can choose an existing Windows Chrome profile and approve a temporary copy of bookmarks/basic settings. The host signs into required accounts manually in private setup, finishes setup, then separately approves the client connection. Existing host passwords and cookies are not automatically copied. Disconnecting the active client ends an imported-profile session and removes its temporary workspace. The original host profile stays unchanged. Files the client explicitly saved to their PC remain there.
+Profile import still requires host permission and copies only bookmarks/basic settings. The host signs in manually in private setup before separately approving the client. Existing Windows passwords and sign-in cookies are not copied. Imported-profile sessions are removed when the active client disconnects; the original host profile stays unchanged. Files explicitly saved to the client's PC remain there.
 
-Installed Windows applications and the original running host Chrome window are not shared. This release provides an isolated Linux browser with independent input.
+This release shares an isolated Linux browser with independent input. Installed Windows programs and the original running Windows Chrome window are not shared.
 
 ## Validation
 
-Source build and 31 regression tests pass. The packaged Host and Client passed real profile, private host sign-in, file-transfer, disconnect and forced-host-termination checks. The actual portable EXE also passed launch, invitation, host approval, viewer, disconnect and invalid-code recovery against a mock host workspace. GitHub Release builds are produced by the Windows release workflow.
+All 34 regression checks pass. Rebuilt Windows apps passed public HTTPS/WSS browser and file-transfer checks, including a 105 MiB upload with SHA-256 verification, remote website file selection and a browser download saved back to the client PC. Packaged profile tests verified manual host setup, approval gating, disconnect cleanup and container/tunnel cleanup after forced Host termination. The actual portable EXE passed public invitation/approval/viewer/disconnect checks against a mock workspace. See [validation details](https://github.com/RedRiotPapon/RemoteControl/blob/main/docs/internet-validation.md).

@@ -26,19 +26,13 @@ The remote browser runs inside a Docker container (`kasmweb/chrome`), providing:
 
 ## Layer 2: Connection Security
 
-### With Tailscale (Recommended)
+### Internet mode (default)
 
-- All traffic encrypted via WireGuard (Tailscale's protocol)
-- No ports exposed to the public internet
-- Authentication managed by Tailscale's identity system
-- Only Tailscale network members can reach the host
+The bundled cloudflared helper creates a temporary Cloudflare Quick Tunnel. The Client uses certificate-validated HTTPS/WSS and the Host uses an encrypted outbound tunnel. Cloudflare terminates TLS and can process traffic; this is not end-to-end encryption. The Host application listener binds to loopback only. No inbound public port is opened. Public browser/file routes still require a valid invitation followed by manual Host approval. Stream cookies are HttpOnly, SameSite=Strict and Secure in this mode. The nonsecret health proof allows startup connectivity verification without exposing workspace content. See [service trust and limits](internet-sharing.md).
 
-### Without Tailscale (LAN Only)
+### Local network mode
 
-- WebSocket server binds to all interfaces (0.0.0.0)
-- Traffic is NOT encrypted at the transport layer in LAN mode
-- Should only be used on trusted local networks
-- Not suitable for internet-facing deployment without Tailscale or VPN
+The Host binds port 9500 on local interfaces. HTTP/WebSocket traffic is unencrypted and should only traverse a trusted LAN. Never forward it to the public internet. No tunnel starts in this mode.
 
 ## Layer 3: Session Authentication
 
@@ -90,7 +84,7 @@ Remote input NEVER touches the host's desktop:
 
 2. **Docker escape vulnerabilities**: While extremely rare, container escape vulnerabilities do exist. Keep Docker Desktop updated.
 
-3. **VNC stream interception (LAN mode)**: Without Tailscale, VNC traffic over WebSocket is not encrypted at the transport layer. Use on trusted networks only.
+3. **VNC stream interception (LAN mode)**: In Local network mode, VNC traffic over WebSocket is not encrypted at the transport layer. Use on trusted networks only.
 
 ### Low Risk
 
@@ -98,11 +92,11 @@ Remote input NEVER touches the host's desktop:
 
 5. **Container-to-host network scanning**: The container could potentially probe the Docker gateway IP, though default bridge mode limits access to host services.
 
-6. **No rate limiting on auth**: MVP does not implement rate limiting on authentication attempts.
+6. **No rate limiting on auth**: Control connections are capped at 16 and unauthenticated connections expire after 10 seconds; comprehensive per-source rate limiting is not implemented. Internet mode exposes these token-gated routes publicly through the tunnel.
 
 ### Mitigations in Future Versions
 
-- Add TLS to WebSocket server (even without Tailscale)
+- Add TLS to trusted LAN mode
 - Implement auth rate limiting and lockout
 - Add network policies to restrict container egress
 - Add audit logging
@@ -117,9 +111,9 @@ Every approved connection gets a main-process-generated, random, non-persistent 
 
 The host's `/api/files/` routes require the current approved stream bearer credential in an Authorization header; cookies alone are insufficient and browser Origin headers are rejected. No CORS permission is granted. The host forwards only fixed upload/list/download operations to a per-workspace Python service on a separate **loopback-published** Docker port with its own random credential. Disconnect revokes the client credential and closes transfers.
 
-The unprivileged service confines operations to open directory descriptors for `/home/kasm-user/Uploads` and `/home/kasm-user/Downloads`. It rejects path separators/traversal and opens downloads without following symlinks; only regular files are returned. Uploads are limited to 1 GiB each, streamed into hidden temporary files, and published without overwriting existing names. Interrupted upload temporary files are removed. Downloads are streamed into a temporary file beside the client-selected destination and renamed only after successful completion. No host directory or Docker socket is mounted into the workspace. The service is removed with the container.
+The unprivileged service confines operations to open directory descriptors for `/home/kasm-user/Uploads` and `/home/kasm-user/Downloads`. It rejects path separators/traversal and opens downloads without following symlinks; only regular files are returned. Uploads are limited to 1 GiB each, streamed into hidden temporary files, and published without overwriting existing names. Interrupted single-request uploads are removed immediately. Internet uploads use ordered 4 MiB parts with at most four incomplete uploads; cancellation attempts removal and abandoned uploads expire after five minutes of inactivity, checked every minute. Files become visible only after a complete upload is committed. Downloads are streamed into a temporary file beside the client-selected destination and renamed only after successful completion. No host directory or Docker socket is mounted into the workspace. The service is removed with the container.
 
-LAN file transfers use HTTP, matching the existing viewer transport; use the existing Tailscale connection for encrypted remote transport. File bytes are copied into the temporary workspace before a website can use them, and browser downloads require the client to choose **Save to this PC**. Neither direction silently shares a local folder.
+LAN file transfers use HTTP, matching the existing viewer transport; Internet mode uses HTTPS through the bundled Cloudflare tunnel. File bytes are copied into the temporary workspace before a website can use them, and browser downloads require the client to choose **Save to this PC**. Neither direction silently shares a local folder.
 
 ## Credential Storage
 
@@ -140,7 +134,7 @@ After approval the host consumes the invitation and issues a separate random str
 
 ## Recommendations
 
-1. **Always use Tailscale** for internet connections
+1. Use **Internet** sharing for different networks and understand the [Cloudflare relay trust boundary](internet-sharing.md)
 2. **Keep Docker Desktop updated** for security patches
 3. **Stop the browser** when not in use
 4. **Monitor resource usage** via the host dashboard
