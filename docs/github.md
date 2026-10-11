@@ -24,9 +24,10 @@ The current regression suite has 31 tests. Real browser checks additionally need
 node scripts/ui-smoke.js
 node scripts/ui-profile-smoke.js
 node scripts/ui-file-smoke.js
+node scripts/ui-portable-smoke.js
 ```
 
-The first script uses a mock workspace by default; set `PB_QA_REAL=1` to exercise the real browser. The profile and file scripts use real Docker workspaces. Their native-dialog stubs exist only in QA processes and are not included in the app runtime. Generated screenshots remain local unless deliberately reviewed for publication.
+The first script uses a mock workspace by default; set `PB_QA_REAL=1` to exercise the real browser. The profile and file scripts use real Docker workspaces. The portable script launches the actual self-extracting client EXE after `dist:client` and checks its connection flow against a mock host. Their native-dialog stubs exist only in QA processes and are not included in the app runtime. Generated screenshots remain local unless deliberately reviewed for publication.
 
 ## Build Windows installers
 
@@ -38,10 +39,13 @@ Outputs:
 
 - `host-app/release/ParallelBrowser-Host-Setup.exe`
 - `client-app/release/ParallelBrowser-Client-Setup.exe`
+- `client-app/release/ParallelBrowser-Client-Portable.exe`
 
 Set `PB_QA_PACKAGED=1` before running the profile and file UI checks to exercise the `release/win-unpacked` executables. Installer wizard installation is a separate manual check.
 
 Distribute executables as GitHub Release assets rather than committing them to Git history. Upload both installers together so users have compatible Host and Client file-transfer versions. Publish SHA-256 checksums alongside them, and describe the profile import scope and remaining Windows-program limitation. These binaries use the project's existing Electron 28 runtime; review and upgrade that runtime before broad distribution.
+
+The **Windows downloads** workflow builds all three EXEs on a GitHub-hosted Windows runner and publishes a `v1.0.0` Release with checksums and [release instructions](release-notes.md). Its initial run is triggered when the workflow file is pushed to `main`; it also supports manual dispatch. It creates a draft, uploads all files, then publishes it. An existing release is not overwritten. Update the version/tag and concurrency group deliberately before publishing a later release. GitHub builds do not run the Docker/WSL-dependent local regression suite; run those checks locally before publication.
 
 ## Documentation
 

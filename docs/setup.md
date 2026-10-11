@@ -60,6 +60,10 @@ The first time you start a browser session, Docker downloads `kasmweb/chrome:1.1
 1. Run `ParallelBrowser-Host-Setup.exe` on the host PC
 2. Run `ParallelBrowser-Client-Setup.exe` on the client PC
 
+For a client who wants to avoid installation, download **ParallelBrowser-Client-Portable.exe** from [GitHub Releases](https://github.com/RedRiotPapon/RemoteControl/releases/latest) and double-click it. Enter a name, paste the host's invitation and click **Connect**. The portable client bundles its runtime and does not need Docker, Node.js or Python. It may take a moment to extract and open. The optional Client Setup EXE performs a one-click per-user installation and opens the app when finished.
+
+The host still needs Docker Desktop. For different networks, the host should help the client connect through Tailscale once; the client app does not supply an internet relay. Windows may show a publisher warning because the current binaries are unsigned.
+
 ### Option B: From Source
 
 ```powershell

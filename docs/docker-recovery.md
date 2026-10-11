@@ -18,6 +18,8 @@ Preserved folders on the affected PC (replace `%LOCALAPPDATA%` with that Windows
 
 These are runtime socket backups, not backups of Docker workload data. Docker settings, images, containers, volumes and virtual disks were not reset or deleted. Existing saved containers may start according to their own restart policies when Docker starts.
 
+The error recurred later the same day during EXE validation. Docker's log then named the secrets socket as well. Recovery again preserved both runtime folders (`Docker/run-recovery-20261011-175746` and `docker-secrets-engine-recovery-20261011-175746`); the first inference-only attempt is preserved as `Docker/run-recovery-20261011-175531`. A hung shutdown required stopping Docker Desktop/backend processes before recovery completed. Docker Desktop subsequently reported running with its Linux engine. This recurrence confirms the workaround is temporary.
+
 The workaround matches reports in [Docker's issue tracker](https://github.com/docker/desktop-feedback/issues/625). This was a successful local recovery, not proof that the underlying Docker/Windows socket lifecycle problem is permanently fixed. Reports also describe the inference socket being created even with Model Runner disabled, so disabling that feature alone was not used as the fix.
 
 If the error recurs, fully stop Docker first and inspect the exact endpoint named in the error. Do not rename arbitrary Docker data directories or run Factory Reset/Purge as part of this workaround. Docker's [troubleshooting guide](https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/) describes local diagnostics and support options. No diagnostic report was uploaded and no external issue was submitted during this session.

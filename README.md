@@ -21,6 +21,16 @@ A two-application system that allows a remote user to control an isolated Chromi
 
 ## Quick Start
 
+### Download and run — no coding required
+
+Get the Windows EXEs from [GitHub Releases](https://github.com/RedRiotPapon/RemoteControl/releases/latest).
+
+- **Client (recommended):** download **ParallelBrowser-Client-Portable.exe** and double-click it. Enter your name, paste the host's invitation, then click **Connect**. No installation wizard, Docker or Node.js is needed on the client PC.
+- **Client (installed):** use **ParallelBrowser-Client-Setup.exe** for one-click installation and launch.
+- **Host:** use **ParallelBrowser-Host-Setup.exe** on the PC providing the browser. Docker Desktop is required on the host only.
+
+The PCs must share a reachable local network, or both have Tailscale configured for an internet connection. The host should handle that one-time network setup for a nontechnical client. These Windows x64 builds are unsigned, so Windows may show a publisher warning. See the [download instructions](docs/release-notes.md).
+
 ### Prerequisites
 
 1. **Docker Desktop** with WSL2 backend — [Download](https://www.docker.com/products/docker-desktop/)
@@ -54,6 +64,7 @@ npm run dist:all
 Installers will be in:
 - `host-app/release/ParallelBrowser-Host-Setup.exe`
 - `client-app/release/ParallelBrowser-Client-Setup.exe`
+- `client-app/release/ParallelBrowser-Client-Portable.exe`
 
 ## Usage
 

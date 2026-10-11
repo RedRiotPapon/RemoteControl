@@ -10,7 +10,13 @@ win:
     - target: nsis
       arch:
         - x64
+    - target: portable
+      arch:
+        - x64
 nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
   artifactName: "ParallelBrowser-Client-Setup.exe"
+portable:
+  artifactName: "ParallelBrowser-Client-Portable.exe"
