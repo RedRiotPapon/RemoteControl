@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: windows-release-v1.1.1
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   release:

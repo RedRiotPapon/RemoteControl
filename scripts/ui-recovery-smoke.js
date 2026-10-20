@@ -101,7 +101,7 @@ const docker = args => execFileSync('docker', args, { encoding: 'utf8', windowsH
       });
       // Stay idle beyond the former HTTP inactivity deadline. The app must keep streaming alive.
       for (let i = 0; i < 7; i++) await cp.waitForTimeout(10000);
-      assert.ok(await host.evaluate(() => global.__pbPongs.client >= 3 && global.__pbPongs.backend >= 3 && global.__pbIdleSockets.every(ws => ws.readyState === 1)), 'Display ping/pong keeps both original hops alive');
+      assert.ok(await host.evaluate(() => global.__pbPongs.client >= 3 && global.__pbIdleSockets.every(ws => ws.readyState === 1)), 'Display ping/pong keeps the internet hop and original loopback socket alive');
       await connected(); console.log('PASS: 70 seconds idle with display heartbeats and page preserved');
     }
     assert.deepEqual(errors, []);

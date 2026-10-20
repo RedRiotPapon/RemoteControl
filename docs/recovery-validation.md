@@ -23,7 +23,7 @@ Version 1.1.1, Windows x64. Docker/Kasm Chrome and the bundled Cloudflare helper
 - Low data (18 FPS), Balanced (24 FPS) and Sharper (30 FPS) settings inside the actual Kasm viewer.
 - Automatic display reconnection, three control reconnections and preservation of the session ID and ephemeral viewer partition.
 - Refresh view preserves an opened remote-browser page.
-- 70 seconds idle with ping/pong on both display hops; Host Stop clears the viewer and revokes the recovered session.
+- 70 seconds idle with internet-hop ping/pong and the original loopback socket preserved; Host Stop clears the viewer and revokes the recovered session.
 
 The mock-workspace variant checks the same client recovery UI without Docker. The portable EXE launch/approval/viewer/disconnect smoke check is separate.
 

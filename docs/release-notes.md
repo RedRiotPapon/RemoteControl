@@ -2,7 +2,7 @@
 
 This update addresses interruptions, repeated manual reloads and browser resource limits. **Update both Host and Client**, then start a new session and generate a fresh invitation. Docker remains on the Host; the Client still needs only its EXE.
 
-- Display WebSockets now have ping/pong keepalives on both hops to avoid idle relay closures.
+- Display WebSockets now have ping/pong keepalives on the internet hop to avoid idle relay closures.
 - Brief control drops recover automatically for up to one minute, using a separate credential for the same approved session. Host approval is still required for each new session.
 - A broken display automatically reconnects with bounded backoff. Browser tabs and website state remain open.
 - Client **Display → Low data / Balanced / Sharper** controls image quality and frame rate. **Refresh view** reconnects the display without reloading the remote website.

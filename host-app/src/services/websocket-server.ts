@@ -449,14 +449,13 @@ export class WebSocketServer extends EventEmitter {
       this.displayWss.handleUpgrade(req, socket, head, client => {
         this.displaySockets.add(client);
         client.on('error', () => backend.terminate());
-        let clientPong = Date.now(), backendPong = Date.now();
+        let clientPong = Date.now();
         client.on('pong', () => { clientPong = Date.now(); });
-        backend.on('pong', () => { backendPong = Date.now(); });
-        // Separate protocol endpoints allow safe ping frames even while a large frame is streaming.
+        // Keep the internet hop alive. Pinned KasmVNC does not answer native WebSocket pings;
+        // the loopback hop uses TCP keepalive and closes on socket/backend errors instead.
         const heartbeat = setInterval(() => {
-          if (Date.now() - Math.min(clientPong, backendPong) > 45000) { client.terminate(); backend.terminate(); return; }
+          if (Date.now() - clientPong > 45000) { client.terminate(); backend.terminate(); return; }
           if (client.readyState === WS.OPEN) client.ping();
-          if (backend.readyState === WS.OPEN) backend.ping();
         }, 15000);
         const relay = (from: WS, to: WS) => {
           let pending = 0;
