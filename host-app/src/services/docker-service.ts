@@ -75,6 +75,10 @@ export class DockerService {
     const hostVncPort = await this.findAvailablePort(6901);
     const hostFilesPort = await this.findAvailablePort(7901);
     const fileToken = randomBytes(32).toString('hex');
+    const engine = await this.docker.info();
+    if (config.cpuCores > engine.NCPU || config.memoryLimitMB * 1024 * 1024 > engine.MemTotal - 512 * 1024 * 1024) {
+      throw new Error(`The browser allocation exceeds Docker's available resources (${engine.NCPU} CPUs, ${Math.floor(engine.MemTotal / 1024 / 1024)} MB RAM). Lower CPU/RAM in Host Settings or increase Docker Desktop resources.`);
+    }
 
     const container = await this.docker.createContainer({
       Image: config.containerImage,
@@ -96,10 +100,10 @@ export class DockerService {
         // Security: restrict container capabilities
         CapDrop: ['ALL'],
         CapAdd: ['SYS_CHROOT', 'SETUID', 'SETGID'],
-        // Memory limit: 2GB
-        Memory: 2 * 1024 * 1024 * 1024,
-        // CPU limit: 2 cores
-        NanoCpus: 2_000_000_000,
+        // Limits are ceilings, not reserved memory or dedicated CPU cores.
+        Memory: config.memoryLimitMB * 1024 * 1024,
+        MemorySwap: (config.memoryLimitMB + 2048) * 1024 * 1024,
+        NanoCpus: config.cpuCores * 1_000_000_000,
         // No privileged mode
         Privileged: false,
         // Read-only root filesystem causes issues with Chrome, so we allow write

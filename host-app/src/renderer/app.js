@@ -15,10 +15,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
   function renderSession(info) {
     session = info;
-    const active = ['running', 'client_pending', 'client_connected'].includes(info.status);
+    const active = ['running', 'client_pending', 'client_connected', 'client_reconnecting'].includes(info.status);
     const transitioning = ['starting', 'stopping'].includes(info.status);
     const labels = { idle: 'Idle', starting: 'Starting', running: 'Ready', client_pending: 'Approval needed',
-      client_connected: 'Client connected', stopping: 'Stopping', error: 'Failed' };
+      client_connected: 'Client connected', client_reconnecting: 'Client reconnecting', stopping: 'Stopping', error: 'Failed' };
     $('session-badge').textContent = labels[info.status] || info.status;
     $('session-badge').className = 'badge badge-' + (active ? 'running' : transitioning ? 'starting' : info.status === 'error' ? 'danger' : 'idle');
     $('stat-session-id').textContent = info.sessionId || '—';
@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('invite-help').textContent = info.status === 'starting' ? 'Preparing the browser. Your invitation will be available when it is ready.'
       : info.hostSetupRequired ? 'Finish private setup and sign in yourself before generating an invitation.'
       : info.status === 'client_pending' ? 'Your client is waiting. Review their request in Client Connection below.'
+      : info.status === 'client_reconnecting' ? 'Connection interrupted. Holding this approved session for up to one minute while the client reconnects. You can disconnect them now.'
       : info.status === 'client_connected' ? 'Your client is connected. Stop the session when you are finished.'
       : info.status === 'running' && sharing.state === 'connecting' ? 'Connecting internet sharing. Your invitation will be available shortly.'
       : info.status === 'running' && sharing.state === 'error' ? 'Sharing is unavailable. Stop and restart the browser to try again.'
@@ -45,7 +46,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('btn-open-host-setup').disabled = busy || info.status !== 'running';
     $('btn-finish-host-setup').disabled = busy || info.status !== 'running' || !info.hostSetupRequired;
     $('btn-finish-host-setup').hidden = !info.hostSetupRequired;
-    $('host-setup-status').textContent = info.status === 'client_connected' ? `${info.profileName ? 'Profile: ' + info.profileName + '. ' : ''}Client has control of the workspace.${info.profileName ? ' Disconnecting ends this session and removes its temporary data.' : ''}` : info.hostSetupRequired
+    if (info.status === 'client_reconnecting') {
+      $('client-badge').textContent = 'Reconnecting';
+      $('client-badge').className = 'badge badge-starting';
+      $('btn-disconnect-client').disabled = false;
+    }
+    $('host-setup-status').textContent = info.status === 'client_reconnecting' ? 'Client is reconnecting. Access is paused; the session ends if recovery fails after one minute.' : info.status === 'client_connected' ? `${info.profileName ? 'Profile: ' + info.profileName + '. ' : ''}Client has control of the workspace.${info.profileName ? ' Disconnecting ends this session and removes its temporary data.' : ''}` : info.hostSetupRequired
       ? `${info.profileName ? 'Profile: ' + info.profileName + '. ' : ''}Private setup required. Sign in yourself, then mark setup finished before inviting a client.`
       : `${info.profileName ? 'Profile: ' + info.profileName + '. ' : ''}Ready to invite. You can reopen private setup before sharing.`;
     $('btn-settings').disabled = busy || transitioning || active;
@@ -155,6 +161,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('setting-width').value = config.browserWidth;
     $('setting-height').value = config.browserHeight;
     $('setting-duration').value = config.maxSessionDurationMinutes;
+    $('setting-cpus').value = config.cpuCores;
+    $('setting-memory').value = config.memoryLimitMB / 1024;
     $('settings-error').textContent = '';
     $('settings-modal').style.display = 'flex';
     $('setting-width').focus();
@@ -172,11 +180,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
   $('btn-save-settings').addEventListener('click', async () => {
-    const inputs = ['setting-width', 'setting-height', 'setting-duration'].map($);
+    const inputs = ['setting-width', 'setting-height', 'setting-duration', 'setting-cpus', 'setting-memory'].map($);
     if (inputs.some(input => !input.reportValidity())) return;
     const next = { ...config, browserWidth: Number(inputs[0].value), browserHeight: Number(inputs[1].value),
-      maxSessionDurationMinutes: Number(inputs[2].value) };
-    try { await invoke('updateConfig', next); config = next; closeSettings(); notice('Session settings saved for this app run.'); }
+      maxSessionDurationMinutes: Number(inputs[2].value), cpuCores: Number(inputs[3].value), memoryLimitMB: Number(inputs[4].value) * 1024 };
+    try { await invoke('updateConfig', next); config = next; closeSettings(); notice('Session settings saved. They apply when you next start the browser.'); }
     catch (error) { $('settings-error').textContent = error.message; }
   });
   window.hostAPI.onSessionUpdate(renderSession);
@@ -200,8 +208,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.hostAPI.onClientDisconnected(resetClient);
   window.hostAPI.onServerError(error => notice(`Connection server: ${error}`, true));
   window.hostAPI.onResourceUpdate(stats => {
-    $('cpu-bar').style.width = `${Math.min(100, stats.cpuPercent)}%`;
-    $('cpu-text').textContent = `${stats.cpuPercent}%`;
+    const cpu = Math.round(stats.cpuPercent / (config?.cpuCores || 4));
+    $('cpu-bar').style.width = `${Math.min(100, cpu)}%`;
+    $('cpu-text').textContent = `${cpu}% of ${config?.cpuCores || 4} cores`;
     $('mem-bar').style.width = `${Math.min(100, 100 * stats.memoryMB / (stats.memoryLimitMB || 2048))}%`;
     $('mem-text').textContent = `${stats.memoryMB} MB`;
   });

@@ -4,6 +4,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let viewer = $('remote-browser');
   let attempt = 0, loadingTimer, connecting = false, viewerFailed = false;
   let fileBusy = false;
+  let controlLost = false, streamUrl = '', displayRetryTimer, displayFailures = 0, viewerReady = false;
+  let displayFailureAt = 0, displayStableAt = 0, displayChecking = false;
+  let displayLoadAt = 0, displayStopped = false;
   const downloadsDialog = $('downloads-dialog');
   function fileNotice(message, failed = false) {
     $('file-notice').hidden = false;
@@ -12,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   function fileControls(busy) {
     fileBusy = busy;
-    $('btn-upload-files').disabled = busy;
+    $('btn-upload-files').disabled = busy || controlLost;
     $('btn-cancel-transfer').hidden = !busy;
     $('btn-dismiss-file-notice').hidden = busy;
     $('file-progress').hidden = !busy;
@@ -84,6 +87,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.connection-dot').forEach(dot => dot.className = `connection-dot ${state}`);
   }
   function clearViewer() {
+    controlLost = false; streamUrl = ''; displayStopped = true;
+    clearTimeout(displayRetryTimer); displayRetryTimer = null;
     downloadsDialog.close(); $('file-notice').hidden = true;
     $('downloads-list').replaceChildren(); $('file-message').textContent = '';
     clearTimeout(loadingTimer);
@@ -144,31 +149,83 @@ document.addEventListener('DOMContentLoaded', () => {
   for (const id of ['btn-reconnect', 'btn-back-to-login']) $(id).addEventListener('click', () => {
     $('connect-status').style.display = 'none'; showScreen('screen-connect'); $('input-code').focus();
   });
-  $('btn-reload-viewer').addEventListener('click', () => {
+  function loadDisplay(manual = false) {
+    if (controlLost || !streamUrl || !$('screen-browser').classList.contains('active')) return;
+    clearTimeout(displayRetryTimer); displayRetryTimer = null;
+    if (manual) { displayFailureAt = 0; displayFailures = 0; displayStopped = false; }
     viewerFailed = false;
+    displayStableAt = 0; displayLoadAt = Date.now();
     $('vnc-placeholder').hidden = false;
     $('viewer-message').textContent = 'Loading the workspace…';
-    viewer.reload();
+    status('Loading workspace…', 'pending');
+    const url = new URL(streamUrl);
+    url.searchParams.set('display', $('display-quality').value);
+    // Bootstrap the same in-memory partition; this does not reload the website inside Chrome.
+    if (!viewerReady) viewer.src = url.href;
+    else void viewer.loadURL(url.href).catch(() => recoverDisplay('The workspace could not load.'));
+  }
+  $('btn-reload-viewer').addEventListener('click', () => loadDisplay(true));
+  $('btn-refresh-display').addEventListener('click', () => loadDisplay(true));
+  $('display-quality').addEventListener('change', () => loadDisplay(true));
+  function recoverDisplay(message) {
+    if (controlLost || !streamUrl || displayStopped) return;
+    viewerFailed = true; displayStableAt = 0;
+    if (!displayFailureAt) displayFailureAt = Date.now();
+    $('vnc-placeholder').hidden = false;
+    if (Date.now() - displayFailureAt >= 60000) {
+      displayStopped = true;
+      $('viewer-message').textContent = 'The display could not reconnect. Check your internet, then click Reload view. Your browser work stays open while the host session is running.';
+      status('Display needs attention', 'disconnected'); return;
+    }
+    status('Reconnecting display…', 'pending');
+    $('viewer-message').textContent = navigator.onLine ? message + ' Reconnecting automatically…' : 'You are offline. Waiting for your internet connection…';
+    if (displayRetryTimer) return;
+    const current = attempt;
+    const delay = Math.min(10000, 1000 * 2 ** Math.min(displayFailures++, 4));
+    displayRetryTimer = setTimeout(() => {
+      displayRetryTimer = null;
+      if (current !== attempt || controlLost || !streamUrl) return;
+      if (Date.now() - displayFailureAt >= 60000 || !navigator.onLine) { recoverDisplay('Connection interrupted.'); return; }
+      loadDisplay();
+    }, delay);
+  }
+  window.addEventListener('online', () => {
+    if (viewerFailed && !controlLost && !displayStopped) loadDisplay();
   });
   async function refreshDisplayStatus() {
-    if (viewerFailed || !$('screen-browser').classList.contains('active')) return;
+    if (controlLost || displayChecking || !$('screen-browser').classList.contains('active')) return;
+    if (viewerFailed) { recoverDisplay('Display connection interrupted.'); return; }
+    displayChecking = true;
+    const element = viewer, current = attempt;
     try {
       if (viewer.getURL() === 'about:blank') return;
-      const state = await viewer.executeJavaScript('document.documentElement.className');
+      let checkTimer;
+      const state = await Promise.race([
+        viewer.executeJavaScript('document.documentElement.className'),
+        new Promise((_, reject) => { checkTimer = setTimeout(() => reject(new Error('Display is not responding.')), 3000); }),
+      ]).finally(() => clearTimeout(checkTimer));
+      if (element !== viewer || current !== attempt || controlLost) return;
       if (state.includes('noVNC_disconnected')) {
-        $('vnc-placeholder').hidden = false;
-        $('viewer-message').textContent = 'The display connection closed. Reload the view or ask the host to restart the workspace.';
-        status('Display disconnected', 'disconnected');
+        recoverDisplay('Display connection interrupted.');
       } else if (state.includes('noVNC_') && !state.includes('noVNC_connected')) {
         status('Connecting display…', 'pending');
+        if (Date.now() - displayLoadAt > 20000) recoverDisplay('The display is taking longer than expected.');
       } else {
+        clearTimeout(displayRetryTimer); displayRetryTimer = null;
+        if (!displayStableAt) displayStableAt = Date.now();
+        if (Date.now() - displayStableAt > 10000) { displayFailureAt = 0; displayFailures = 0; }
         clearTimeout(loadingTimer); $('vnc-placeholder').hidden = true;
         status('Workspace connected', 'connected');
       }
-    } catch (_) { /* Navigation may replace the guest document during a check. */ }
+    } catch (_) {
+      if (element === viewer && current === attempt && !controlLost && Date.now() - displayLoadAt > 20000)
+        recoverDisplay('The display stopped responding.');
+    }
+    finally { displayChecking = false; }
   }
   setInterval(refreshDisplayStatus, 1000);
   function replaceViewer(partition, url) {
+    viewerReady = false;
     const next = viewer.cloneNode(false);
     next.setAttribute('partition', partition);
     next.setAttribute('src', url);
@@ -177,6 +234,10 @@ document.addEventListener('DOMContentLoaded', () => {
     bindViewer(next);
   }
   function bindViewer(element) {
+  element.addEventListener('dom-ready', () => { if (element === viewer) viewerReady = true; });
+  element.addEventListener('render-process-gone', () => {
+    if (element === viewer) recoverDisplay('The display needs to restart.');
+  });
   element.addEventListener('did-stop-loading', () => {
     if (element !== viewer) return;
     refreshDisplayStatus();
@@ -185,24 +246,32 @@ document.addEventListener('DOMContentLoaded', () => {
   element.addEventListener('did-navigate', event => {
     if (element !== viewer) return;
     if (event.httpResponseCode < 400) return;
-    viewerFailed = true;
-    $('vnc-placeholder').hidden = false;
-    $('viewer-message').textContent = 'The host could not open the display. Ask the host to restart the workspace.';
-    status('Display unavailable', 'disconnected');
+    recoverDisplay('The host could not open the display.');
   });
   element.addEventListener('did-fail-load', e => {
     if (element !== viewer) return;
     if (e.errorCode === -3 || !$('screen-browser').classList.contains('active')) return;
-    viewerFailed = true;
     clearTimeout(loadingTimer);
-    $('vnc-placeholder').hidden = false;
-    $('viewer-message').textContent = 'Workspace could not load. Reload the view or ask the host to restart the session.';
-    status('Display unavailable', 'disconnected');
+    recoverDisplay('The workspace could not load.');
   });
   }
   bindViewer(viewer);
   window.clientAPI.onConnectionStatus(state => {
     if (['connecting', 'awaiting_approval'].includes(state)) status('Waiting for host', 'pending');
+    if (state === 'reconnecting') {
+      clearTimeout(loadingTimer);
+      controlLost = true; clearTimeout(displayRetryTimer); displayRetryTimer = null;
+      $('btn-upload-files').disabled = true; $('btn-downloads').disabled = true;
+      downloadsDialog.close();
+      $('vnc-placeholder').hidden = false;
+      $('viewer-message').textContent = 'Connection interrupted. Reconnecting for up to one minute. Your browser work stays open.';
+      status('Reconnecting to host…', 'pending');
+    }
+  });
+  window.clientAPI.onResumed(() => {
+    controlLost = false;
+    $('btn-upload-files').disabled = fileBusy; $('btn-downloads').disabled = false;
+    loadDisplay(true);
   });
   window.clientAPI.onApprovalPending(() => {
     $('waiting-title').textContent = 'Waiting for the host';
@@ -211,6 +280,9 @@ document.addEventListener('DOMContentLoaded', () => {
   window.clientAPI.onApproved(config => {
     connecting = false;
     viewerFailed = false;
+    controlLost = false; displayStopped = false; displayFailureAt = 0; displayFailures = 0;
+    displayStableAt = 0; displayLoadAt = Date.now();
+    $('btn-upload-files').disabled = fileBusy; $('btn-downloads').disabled = false;
     if (!config?.streamUrl || !/^https?:\/\//.test(config.streamUrl) || !/^pb-remote-[a-f0-9]{32}$/.test(config.viewerPartition || '')) {
       window.clientAPI.disconnect();
       disconnected('Display unavailable', 'The host did not provide a workspace URL. Restart the host session.'); return;
@@ -218,9 +290,11 @@ document.addEventListener('DOMContentLoaded', () => {
     $('input-code').value = '';
     clearTimeout(loadingTimer); showScreen('screen-browser'); status('Loading workspace…', 'pending');
     $('viewer-message').textContent = 'Loading the workspace…'; $('vnc-placeholder').hidden = false;
-    replaceViewer(config.viewerPartition, config.streamUrl); viewer.style.display = 'flex';
+    streamUrl = config.streamUrl;
+    const initialUrl = new URL(streamUrl); initialUrl.searchParams.set('display', $('display-quality').value);
+    replaceViewer(config.viewerPartition, initialUrl.href); viewer.style.display = 'flex';
     loadingTimer = setTimeout(() => {
-      $('viewer-message').textContent = 'The display is taking longer than expected. Reload the view or check with the host.';
+      recoverDisplay('The display is taking longer than expected.');
     }, 20000);
   });
   window.clientAPI.onRejected(reason => disconnected('Connection declined', reason || 'The host declined your request.'));

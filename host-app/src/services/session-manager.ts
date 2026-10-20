@@ -193,14 +193,15 @@ export class SessionManager extends EventEmitter {
   }
 
   setClientConnected(connected: boolean): void {
-    const endProfileSession = !connected && this.sessionStatus === SessionStatus.CLIENT_CONNECTED && !!this.profileName;
+    const endProfileSession = !connected && [SessionStatus.CLIENT_CONNECTED, SessionStatus.CLIENT_RECONNECTING].includes(this.sessionStatus) && !!this.profileName;
     if (connected) {
-      this.clientConnectedAt = new Date();
+      this.clientConnectedAt = this.clientConnectedAt || new Date();
       this.sessionStatus = SessionStatus.CLIENT_CONNECTED;
     } else {
       this.clientConnectedAt = null;
       if (
         this.sessionStatus === SessionStatus.CLIENT_CONNECTED ||
+        this.sessionStatus === SessionStatus.CLIENT_RECONNECTING ||
         this.sessionStatus === SessionStatus.CLIENT_PENDING
       ) {
         this.sessionStatus = SessionStatus.RUNNING;
@@ -214,6 +215,11 @@ export class SessionManager extends EventEmitter {
     if (this.sessionStatus !== SessionStatus.RUNNING) throw new Error('Private setup is available before inviting a client.');
     this.revokeToken();
     this.hostSetupRequired = true;
+    this.emit('session-update', this.getSessionInfo());
+  }
+
+  setClientReconnecting(): void {
+    this.sessionStatus = SessionStatus.CLIENT_RECONNECTING;
     this.emit('session-update', this.getSessionInfo());
   }
 
@@ -276,7 +282,7 @@ export class SessionManager extends EventEmitter {
           this.emit('resource-update', {
             cpuPercent: 1.5,
             memoryMB: Math.round(mem.rss / (1024 * 1024)),
-            memoryLimitMB: 2048,
+            memoryLimitMB: this.config.memoryLimitMB,
           });
         } else {
           const usage = await this.dockerService.getResourceUsage();

@@ -10,7 +10,7 @@ const get = (url, headers = {}) => new Promise((resolve, reject) => {
   http.get(url, { headers }, response => { response.resume(); response.on('end', () => resolve(response)); }).on('error', reject);
 });
 
-test('An unresponsive approved connection revokes access and ends its imported-profile session', { timeout: 10000 }, async () => {
+test('An unresponsive approved connection pauses access, then cleans its profile after recovery expires', { timeout: 10000 }, async () => {
   process.env.PB_TEST_MODE = '1';
   const manager = new SessionManager({ isAvailable: async () => false, stopBrowser: async () => {}, getContainerId: () => null });
   const server = new WebSocketServer(manager); server.port = 0;
@@ -28,7 +28,10 @@ test('An unresponsive approved connection revokes access and ends its imported-p
     const idle = new Promise(resolve => manager.on('session-update', info => { if (info.status === 'idle') resolve(); }));
     // Advance the heartbeat deadline without delaying the suite for a minute.
     server.lastClientPong = Date.now() - 60000;
-    server.heartbeatInterval._onTimeout(); await idle;
+    server.heartbeatInterval._onTimeout();
+    assert.equal(manager.getSessionInfo().status, 'client_reconnecting');
+    assert.ok(server.resume); assert.equal(server.connectedClient, null);
+    server.recoveryTimer._onTimeout(); await idle;
     assert.equal(server.streamToken, null); assert.equal(server.connectedClient, null);
     assert.equal(manager.getSessionInfo().profileName, undefined);
   } finally { client?.terminate(); server.stop(); await manager.stopSession(); }

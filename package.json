@@ -1,6 +1,6 @@
 {
   "name": "parallelbrowser",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "ParallelBrowser - Remote isolated browser access system",
   "scripts": {

@@ -5,6 +5,7 @@ export function validateSessionConfig(input: Partial<SessionConfig>): SessionCon
   for (const [key, min, max] of [
     ['browserWidth', 800, 3840], ['browserHeight', 600, 2160],
     ['maxSessionDurationMinutes', 0, 1440],
+    ['cpuCores', 1, 8], ['memoryLimitMB', 1024, 8192],
   ] as const) {
     if (!Number.isInteger(config[key]) || config[key] < min || config[key] > max) {
       throw new Error(`${key} must be a whole number between ${min} and ${max}.`);

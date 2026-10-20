@@ -2,6 +2,10 @@
 
 The apps support an isolated browser with independent input, client file transfer, and host-approved session-only import of Windows Chrome bookmarks/basic settings. The host signs in privately before approving a client. They do **not yet run installed Windows programs or share an exact existing signed-in Windows Chrome process**. The Windows workspace described below remains a proposed next implementation.
 
+## Current update — 1.1.1
+
+Connection recovery, display keepalives/quality controls and configurable CPU/RAM limits are covered in [recovery validation](recovery-validation.md). Default capacity is now 4 cores/4 GiB. The test counts, resource measurements and disconnect behavior below are historical results from the earlier releases.
+
 ## Findings and repairs
 
 Version 1.1.0 adds bundled internet sharing without a VPN installation. Host approval, profile setup and client files work through public HTTPS/WSS. See [current validation](internet-validation.md) and [relay limits/privacy](internet-sharing.md). The earlier evidence below describes the browser/profile repairs that this release preserves.

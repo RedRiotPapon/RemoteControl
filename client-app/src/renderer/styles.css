@@ -338,6 +338,13 @@ textarea:focus {
   gap: 10px;
 }
 
+.browser-toolbar { height: auto; min-height: 44px; padding: 8px 16px; flex-wrap: wrap; gap: 8px; }
+.toolbar-info { min-width: 0; }
+#toolbar-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toolbar-actions { flex-wrap: wrap; gap: 8px; }
+.display-quality { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+.display-quality select { width: auto; margin: 0; padding: 6px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; }
+
 /* VNC Container & Canvas */
 .vnc-container {
   flex: 1;

@@ -21,11 +21,16 @@ export class WebSocketServer extends EventEmitter {
   private hostIp = '127.0.0.1';
   private streamToken: string | null = null;
   private proxySockets = new Set<stream.Duplex>();
+  private displaySockets = new Set<WS>();
+  private displayWss = new WSServer({ noServer: true, maxPayload: 64 * 1024 * 1024, perMessageDeflate: false });
   private proxyRequests = new Set<http.ClientRequest>();
   private fileInputs = new Set<http.IncomingMessage>();
   private hostSetupServer: http.Server | null = null;
   private hostSetupToken: string | null = null;
   private lastClientPong = 0;
+  private resume: { token: string; clientName: string; deadline: number } | null = null;
+  private recoveryTimer: NodeJS.Timeout | null = null;
+  private readonly reconnectWindowMs = 60000;
   private publicOrigin: string | null = null;
   private readonly instance = randomBytes(16).toString('hex');
 
@@ -103,7 +108,7 @@ export class WebSocketServer extends EventEmitter {
     server.on('error', error => this.emit('server-error', error.message));
     this.heartbeatInterval = setInterval(() => {
       if (this.connectedClient?.readyState === WS.OPEN) {
-        if (Date.now() - this.lastClientPong > 45000) { this.disconnectClient(); return; }
+        if (Date.now() - this.lastClientPong > 45000) { this.suspendClient(this.connectedClient); return; }
         this.connectedClient.ping();
         this.connectedClient.send(JSON.stringify(createMessage(MessageType.HEARTBEAT, { time: Date.now() })));
       }
@@ -123,6 +128,10 @@ export class WebSocketServer extends EventEmitter {
 
   disconnectClient(): void {
     const active = this.connectedClient, pending = this.pendingClient;
+    const recovering = !!this.resume;
+    this.resume = null;
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = null;
     this.connectedClient = null; this.pendingClient = null;
     this.clearStream();
     for (const ws of [active, pending?.ws]) {
@@ -132,7 +141,7 @@ export class WebSocketServer extends EventEmitter {
         ws.close();
       } else ws.terminate();
     }
-    if (active || pending) {
+    if (active || pending || recovering) {
       this.sessionManager.setClientConnected(false);
       this.emit('client-disconnected');
     }
@@ -151,8 +160,10 @@ export class WebSocketServer extends EventEmitter {
       return;
     }
     this.streamToken = randomBytes(32).toString('hex');
+    this.resume = { token: randomBytes(32).toString('hex'), clientName, deadline: 0 };
     const payload: ApprovalGrantedPayload = {
       sessionId: this.sessionManager.getSessionInfo().sessionId,
+      resumeToken: this.resume.token, reconnectWindowMs: this.reconnectWindowMs,
       streamUrl: `${this.publicOrigin || `http://${this.hostIp}:${this.port}`}/stream/?access=${this.streamToken}`,
       hostAddress: this.hostIp, port: this.port,
       vncConfig: { width: this.sessionManager.getConfig().browserWidth,
@@ -173,16 +184,38 @@ export class WebSocketServer extends EventEmitter {
       clearTimeout(timeout);
       if (this.pendingClient?.ws === ws || this.connectedClient === ws) {
         if (this.pendingClient?.ws === ws) this.pendingClient = null;
-        if (this.connectedClient === ws) { this.connectedClient = null; this.clearStream(); }
+        if (this.connectedClient === ws) { this.suspendClient(ws); return; }
         this.sessionManager.setClientConnected(false); this.emit('client-disconnected');
       }
     });
     ws.once('message', data => {
       clearTimeout(timeout);
       const msg = parseMessage(data.toString());
+      if (msg?.type === MessageType.RESUME_REQUEST || msg?.type === MessageType.DISCONNECT) {
+        const credential = (msg.payload as any)?.resumeToken;
+        const valid = this.resume && typeof credential === 'string' && /^[a-f0-9]{64}$/.test(credential) &&
+          timingSafeEqual(Buffer.from(credential), Buffer.from(this.resume.token));
+        if (valid && msg.type === MessageType.DISCONNECT) { this.disconnectClient(); ws.close(); return; }
+        if (!valid || this.connectedClient || !this.resume?.deadline || Date.now() >= this.resume.deadline) {
+          ws.send(JSON.stringify(createMessage(MessageType.AUTH_RESULT, { success: false,
+            retryable: !!valid && !!this.connectedClient,
+            reason: 'The previous session cannot be resumed. Ask the host for a new invitation.' })));
+          ws.close(); return;
+        }
+        if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+        this.recoveryTimer = null; this.resume.deadline = 0;
+        this.connectedClient = ws; this.lastClientPong = Date.now();
+        this.listenForDisconnect(ws);
+        this.sessionManager.setClientConnected(true);
+        ws.send(JSON.stringify(createMessage(MessageType.SESSION_RESUMED, {
+          sessionId: this.sessionManager.getSessionInfo().sessionId,
+        })));
+        this.emit('client-connected', { clientName: this.resume.clientName, resumed: true });
+        return;
+      }
       const payload = msg?.payload as AuthRequestPayload | undefined;
       // Check after authentication as well, closing the simultaneous-connection race.
-      if (this.connectedClient || this.pendingClient) {
+      if (this.connectedClient || this.pendingClient || this.resume) {
         ws.send(JSON.stringify(createMessage(MessageType.ERROR, {
           code: 'SESSION_BUSY', message: 'Another client is already connected or awaiting approval.',
         })));
@@ -196,15 +229,30 @@ export class WebSocketServer extends EventEmitter {
       }
       this.pendingClient = { ws, token: payload.token,
         clientName: typeof payload.clientName === 'string' ? payload.clientName.slice(0, 100) : 'Remote Client' };
-      ws.on('message', data => {
-        const message = parseMessage(data.toString());
-        if (message?.type === MessageType.DISCONNECT) ws.close();
-        // Do not echo heartbeats: two periodic senders otherwise create an infinite loop.
-      });
+      this.listenForDisconnect(ws);
       ws.send(JSON.stringify(createMessage(MessageType.APPROVAL_PENDING, {})));
       this.sessionManager.setClientPending();
       this.emit('client-connecting', { clientName: this.pendingClient.clientName });
     });
+  }
+
+  private listenForDisconnect(ws: WS): void {
+    ws.on('message', data => {
+      if (parseMessage(data.toString())?.type === MessageType.DISCONNECT &&
+          (this.connectedClient === ws || this.pendingClient?.ws === ws)) this.disconnectClient();
+    });
+  }
+
+  private suspendClient(ws: WS): void {
+    if (this.connectedClient !== ws) return;
+    this.connectedClient = null;
+    // Cut off display/files immediately, retaining credentials only for the same approved session.
+    this.closeProxyConnections();
+    ws.terminate();
+    if (!this.resume) { this.disconnectClient(); this.sessionManager.setClientConnected(false); return; }
+    this.resume.deadline = Date.now() + this.reconnectWindowMs;
+    this.recoveryTimer = setTimeout(() => this.disconnectClient(), this.reconnectWindowMs);
+    this.sessionManager.setClientReconnecting();
   }
 
   private tokenMatches(value: string | null | undefined): boolean {
@@ -240,7 +288,18 @@ export class WebSocketServer extends EventEmitter {
     const hostBootstrap = privateView && !!this.hostSetupToken && !!setupAccess && /^[a-f0-9]{64}$/.test(setupAccess) && timingSafeEqual(Buffer.from(setupAccess), Buffer.from(this.hostSetupToken));
     if (url.pathname === '/stream/' && (hostBootstrap || (!privateView && this.connectedClient?.readyState === WS.OPEN && this.tokenMatches(setupAccess)))) {
       const cookie = (privateView ? `pb_host_setup=${this.hostSetupToken}` : `pb_stream=${this.streamToken}`) + (!privateView && this.publicOrigin ? '; Secure' : '');
-      res.writeHead(302, { Location: '/', 'Set-Cookie': `${cookie}; HttpOnly; SameSite=Strict; Path=/` });
+      // Kasm's numbered presets override URL frame rates. Custom presets keep our explicit limits.
+      const presets: Record<string, string[]> = {
+        data: ['18', '3', '6', '5', '4', '960', '540'],
+        balanced: ['24', '4', '8', '7', '7', '1280', '720'],
+        sharp: ['30', '7', '9', '8', '8', '1920', '1080'],
+      };
+      const [fps, min, max, jpeg, webp, width, height] = presets[url.searchParams.get('display') || 'balanced'] || presets.balanced;
+      const display = new URLSearchParams({ autoconnect: 'true', reconnect: 'true', reconnect_delay: '2000',
+        video_quality: '10', framerate: fps, enable_hidpi: 'false', resize: 'remote',
+        dynamic_quality_min: min, dynamic_quality_max: max, jpeg_video_quality: jpeg, webp_video_quality: webp,
+        max_video_resolution_x: width, max_video_resolution_y: height });
+      res.writeHead(302, { Location: '/?' + display, 'Set-Cookie': `${cookie}; HttpOnly; SameSite=Strict; Path=/` });
       res.end(); return;
     }
     if (!(privateView ? this.isHostAuthorized(req) : this.isStreamAuthorized(req))) {
@@ -360,44 +419,71 @@ export class WebSocketServer extends EventEmitter {
     if (!port || !(privateView ? this.isHostAuthorized(req) : this.isStreamAuthorized(req)) || (origin && origin !== expectedOrigin)) {
       socket.destroy(); return;
     }
-    const upstream = process.env.PB_TEST_MODE === '1' ? http : https;
-    const proxy = upstream.request({ hostname: '127.0.0.1', port, path: req.url,
-      headers: this.backendHeaders(req, port), rejectUnauthorized: false });
-    this.proxyRequests.add(proxy);
-    proxy.once('close', () => this.proxyRequests.delete(proxy));
+    // Upgraded sockets must not inherit HTTP inactivity deadlines or delayed small input packets.
+    const tune = (connection: stream.Duplex) => {
+      const tcp = connection as import('net').Socket;
+      tcp.setTimeout?.(0); tcp.setNoDelay?.(true); tcp.setKeepAlive?.(true, 15000);
+    };
+    tune(socket);
+    if (this.displaySockets.size >= 32) { socket.destroy(); return; }
+    const protocols = req.headers['sec-websocket-protocol']?.split(',').map(p => p.trim()).filter(Boolean) || [];
+    if (protocols.length > 4 || new Set(protocols).size !== protocols.length || protocols.some(p => !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(p))) { socket.destroy(); return; }
+    const target = new URL(req.url || '/', 'http://localhost');
+    const backend = new WS(`${process.env.PB_TEST_MODE === '1' ? 'ws' : 'wss'}://127.0.0.1:${port}${target.pathname}${target.search}`, protocols, {
+      headers: { Authorization: `Basic ${Buffer.from(`kasm_user:${this.sessionManager.getVNCPassword()}`).toString('base64')}` },
+      origin: expectedOrigin,
+      rejectUnauthorized: false, handshakeTimeout: 10000, perMessageDeflate: false, maxPayload: 64 * 1024 * 1024,
+    });
+    this.displaySockets.add(backend);
     this.proxySockets.add(socket);
-    socket.once('close', () => { this.proxySockets.delete(socket); proxy.destroy(); });
+    socket.once('close', () => { this.proxySockets.delete(socket); backend.terminate(); });
     socket.on('error', () => socket.destroy());
-    proxy.on('upgrade', (response, backend, backendHead) => {
-      this.proxySockets.add(backend);
-      backend.once('close', () => { this.proxySockets.delete(backend); socket.destroy(); });
-      backend.on('error', () => backend.destroy());
-      socket.once('close', () => backend.destroy());
-      let headers = 'HTTP/1.1 101 Switching Protocols\r\n';
-      for (const [name, value] of Object.entries(response.headers)) {
-        for (const item of Array.isArray(value) ? value : [value]) {
-          if (item !== undefined) headers += `${name}: ${item}\r\n`;
-        }
-      }
-      socket.write(headers + '\r\n');
-      if (backendHead.length) socket.write(backendHead);
-      if (head.length) backend.write(head);
-      socket.pipe(backend).pipe(socket);
-    });
-    proxy.on('response', response => {
-      response.resume();
-      this.emit('server-error', `Workspace display upgrade failed (HTTP ${response.statusCode}). Restart the workspace.`);
-      socket.destroy();
-    });
-    proxy.on('error', error => {
+    backend.once('close', () => { this.displaySockets.delete(backend); socket.destroy(); });
+    backend.on('error', error => {
+      if (socket.destroyed || !(privateView ? this.isHostAuthorized(req) : this.isStreamAuthorized(req))) { socket.destroy(); return; }
       this.emit('server-error', `Workspace display connection failed: ${error.message}`);
       socket.destroy();
     });
-    proxy.end();
+    backend.once('open', () => {
+      if (socket.destroyed || !(privateView ? this.isHostAuthorized(req) : this.isStreamAuthorized(req))) { backend.terminate(); socket.destroy(); return; }
+      this.displayWss.handleUpgrade(req, socket, head, client => {
+        this.displaySockets.add(client);
+        client.on('error', () => backend.terminate());
+        let clientPong = Date.now(), backendPong = Date.now();
+        client.on('pong', () => { clientPong = Date.now(); });
+        backend.on('pong', () => { backendPong = Date.now(); });
+        // Separate protocol endpoints allow safe ping frames even while a large frame is streaming.
+        const heartbeat = setInterval(() => {
+          if (Date.now() - Math.min(clientPong, backendPong) > 45000) { client.terminate(); backend.terminate(); return; }
+          if (client.readyState === WS.OPEN) client.ping();
+          if (backend.readyState === WS.OPEN) backend.ping();
+        }, 15000);
+        const relay = (from: WS, to: WS) => {
+          let pending = 0;
+          from.on('message', (data, binary) => {
+            if (to.readyState !== WS.OPEN) return;
+            pending++; from.pause();
+            to.send(data, { binary }, error => {
+              if (error) { from.terminate(); to.terminate(); return; }
+              if (--pending === 0 && from.readyState === WS.OPEN) from.resume();
+            });
+          });
+        };
+        relay(client, backend); relay(backend, client);
+        client.once('close', () => { clearInterval(heartbeat); this.displaySockets.delete(client); backend.terminate(); });
+        backend.once('close', () => { clearInterval(heartbeat); client.terminate(); });
+      });
+    });
   }
 
   private clearStream(): void {
     this.streamToken = null;
+    this.closeProxyConnections();
+  }
+
+  private closeProxyConnections(): void {
+    for (const ws of this.displaySockets) ws.terminate();
+    this.displaySockets.clear();
     for (const input of this.fileInputs) input.destroy();
     this.fileInputs.clear();
     for (const socket of this.proxySockets) socket.destroy();

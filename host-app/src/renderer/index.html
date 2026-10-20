@@ -180,6 +180,15 @@
         </div>
         <div class="modal-body">
           <div class="form-group">
+            <label for="setting-cpus">Browser CPU cores</label>
+            <input type="number" id="setting-cpus" value="4" min="1" max="8" step="1" required>
+          </div>
+          <div class="form-group">
+            <label for="setting-memory">Browser RAM limit (GB)</label>
+            <input type="number" id="setting-memory" value="4" min="1" max="8" step="1" required>
+            <span class="text-small text-muted">4 cores and 4 GB suit heavier websites. These are usage limits; unused memory stays available. Lower them if your PC needs more room.</span>
+          </div>
+          <div class="form-group">
             <label for="setting-width">Browser Width</label>
             <input type="number" id="setting-width" value="1920" min="800" max="3840" required>
           </div>

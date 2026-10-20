@@ -26,7 +26,7 @@ docker info
 
 #### 2. Internet sharing (bundled)
 
-No networking software or account setup is required on either PC. Update both apps to 1.1.0+ and leave **Internet** selected. See [service limits, privacy and troubleshooting](internet-sharing.md).
+No networking software or account setup is required on either PC. Update both apps to 1.1.1+ and leave **Internet** selected. See [service limits, privacy and troubleshooting](internet-sharing.md).
 
 #### 3. Node.js and npm (For Building from Source)
 
@@ -79,7 +79,7 @@ npm run start:client
 6. On the client PC, enter a name, paste the invitation and select **Connect**. The host must approve the connection before the browser appears. The client can then use the host-prepared signed-in websites without receiving the host's password.
 7. Continue using the host desktop normally. Client input affects the isolated browser display. Installed Windows programs and the original running Chrome window are not shared.
 
-For imported profiles, disconnecting the active client ends the session and removes its temporary workspace. **Stop Browser**, host quit and the duration limit also remove the workspace. A cleanup helper handles abrupt host termination and retries if Docker is unreachable. The original host profile remains unchanged; a new profile session needs fresh host permission and manual sign-in. A fresh-browser session can remain running after disconnect until the host stops it.
+For imported profiles, explicitly disconnecting the active client ends the session and removes its temporary workspace. A network interruption pauses browser/file access and holds the same approved session for up to one minute, then cleans it up if recovery fails. The Host can disconnect or stop immediately during recovery. **Stop Browser**, host quit and the duration limit also remove the workspace. A cleanup helper handles abrupt host termination and retries if Docker is unreachable. The original host profile remains unchanged; a new profile session needs fresh host permission and manual sign-in. A fresh-browser session can remain running after disconnect until the host stops it.
 
 ### Files on the client's PC
 

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 import { DockerService } from '../services/docker-service';
 import { SessionManager } from '../services/session-manager';
 import { WebSocketServer } from '../services/websocket-server';
@@ -81,6 +82,10 @@ function createWindow(): void {
 function initializeServices(): void {
   dockerService = new DockerService();
   sessionManager = new SessionManager(dockerService);
+  try {
+    const saved = fs.readFileSync(path.join(app.getPath('userData'), 'session-settings.json'), 'utf8');
+    if (saved.length <= 16384) sessionManager.updateConfig(JSON.parse(saved));
+  } catch { /* First launch or invalid saved settings: use validated defaults. */ }
   wsServer = new WebSocketServer(sessionManager);
   internetTunnel = new InternetTunnel(app.isPackaged ? path.join(process.resourcesPath, 'tools/cloudflared.exe') : path.resolve(__dirname, '../../vendor/cloudflared.exe'));
   internetTunnel.on('unavailable', () => {
@@ -225,10 +230,16 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('update-config', (_event, config: Partial<SessionConfig>) => {
+    const previous = sessionManager.getConfig();
     try {
       sessionManager.updateConfig(config);
+      const file = path.join(app.getPath('userData'), 'session-settings.json');
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file + '.tmp', JSON.stringify(sessionManager.getConfig(), null, 2));
+      fs.renameSync(file + '.tmp', file);
       return { success: true };
     } catch (error: any) {
+      try { sessionManager.updateConfig(previous); } catch { /* Active sessions retain their configuration. */ }
       return { success: false, error: error.message };
     }
   });

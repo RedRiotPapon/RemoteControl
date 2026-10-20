@@ -32,6 +32,7 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: false,
       webviewTag: true,
+      backgroundThrottling: false,
     },
     backgroundColor: '#0f172a',
     show: false,
@@ -45,6 +46,7 @@ function createWindow(): void {
     preferences.nodeIntegration = false;
     preferences.contextIsolation = true;
     preferences.sandbox = true;
+    preferences.backgroundThrottling = false;
     try {
       const blank = !params.src || params.src === 'about:blank';
       if (blank ? params.partition !== 'pb-remote-inactive' :
@@ -66,14 +68,19 @@ function sendToRenderer(channel: string, data: unknown): void {
 function initializeServices(): void {
   connectionService = new ConnectionService();
 
-  connectionService.on('status-change', (status) => sendToRenderer('connection-status', status));
+  connectionService.on('status-change', (status) => {
+    if (status === 'reconnecting') files.cancel();
+    sendToRenderer('connection-status', status);
+  });
+  connectionService.on('resumed', () => sendToRenderer('connection-resumed', null));
   connectionService.on('approval-pending', () => sendToRenderer('approval-pending', null));
   connectionService.on('approved', (config) => {
     void clearRemoteStorage().catch(() => {});
     approvedPartition = `pb-remote-${randomBytes(16).toString('hex')}`;
     approvedOrigin = new URL(config.streamUrl).origin;
     files.approve(config.streamUrl);
-    sendToRenderer('approved', { ...config, viewerPartition: approvedPartition });
+    const { resumeToken, reconnectWindowMs, ...displayConfig } = config;
+    sendToRenderer('approved', { ...displayConfig, viewerPartition: approvedPartition });
   });
   connectionService.on('rejected', (reason) => sendToRenderer('rejected', reason));
   connectionService.on('disconnected', (reason) => { approvedOrigin = null; files.clear(); sendToRenderer('disconnected', reason); void clearRemoteStorage().catch(() => {}); });

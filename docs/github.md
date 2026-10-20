@@ -45,7 +45,7 @@ Set `PB_QA_PACKAGED=1` before running the profile and file UI checks to exercise
 
 Distribute executables as GitHub Release assets rather than committing them to Git history. Upload both installers together so users have compatible Host and Client file-transfer versions. Publish SHA-256 checksums alongside them, and describe the profile import scope and remaining Windows-program limitation. These binaries use the project's existing Electron 28 runtime; review and upgrade that runtime before broad distribution.
 
-The **Windows downloads** workflow builds all three EXEs on a GitHub-hosted Windows runner and publishes a `v1.1.0` Release with checksums and [release instructions](release-notes.md). Its initial run is triggered when the workflow file is pushed to `main`; it also supports manual dispatch. It creates a draft, uploads all files, then publishes it. An existing release is not overwritten. Update the version/tag and concurrency group deliberately before publishing a later release. GitHub builds do not run the Docker/WSL-dependent local regression suite; run those checks locally before publication.
+The **Windows downloads** workflow builds all three EXEs on a GitHub-hosted Windows runner and publishes a `v1.1.1` Release with checksums and [release instructions](release-notes.md). Its initial run is triggered when the workflow file is pushed to `main`; it also supports manual dispatch. It creates a draft, uploads all files, then publishes it. An existing release is not overwritten. Update the version/tag and concurrency group deliberately before publishing a later release. GitHub builds do not run the Docker/WSL-dependent local regression suite; run those checks locally before publication.
 
 ## Documentation
 

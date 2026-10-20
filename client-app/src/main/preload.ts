@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('clientAPI', {
   onConnectionStatus: (cb: (status: any) => void) => {
     ipcRenderer.on('connection-status', (_e, d) => cb(d));
   },
+  onResumed: (cb: () => void) => { ipcRenderer.on('connection-resumed', () => cb()); },
   onApprovalPending: (cb: () => void) => {
     ipcRenderer.on('approval-pending', () => cb());
   },

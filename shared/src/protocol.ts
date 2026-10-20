@@ -3,6 +3,8 @@
 export enum MessageType {
   // Auth flow
   AUTH_REQUEST = 'auth_request',
+  RESUME_REQUEST = 'resume_request',
+  SESSION_RESUMED = 'session_resumed',
   AUTH_CHALLENGE = 'auth_challenge',
   AUTH_RESPONSE = 'auth_response',
   AUTH_RESULT = 'auth_result',
@@ -51,6 +53,8 @@ export interface AuthResultPayload {
 
 export interface ApprovalGrantedPayload {
   sessionId: string;
+  resumeToken?: string;
+  reconnectWindowMs?: number;
   streamUrl?: string;
   hostAddress: string;
   port: number;

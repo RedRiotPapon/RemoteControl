@@ -3,6 +3,8 @@ export interface SessionConfig {
   browserHeight: number;
   maxSessionDurationMinutes: number;
   containerImage: string;
+  cpuCores: number;
+  memoryLimitMB: number;
 }
 
 export interface SessionInfo {
@@ -29,6 +31,7 @@ export enum SessionStatus {
   RUNNING = 'running',
   CLIENT_PENDING = 'client_pending',
   CLIENT_CONNECTED = 'client_connected',
+  CLIENT_RECONNECTING = 'client_reconnecting',
   STOPPING = 'stopping',
   ERROR = 'error',
 }
@@ -37,6 +40,7 @@ export enum ClientAuthStatus {
   CONNECTING = 'connecting',
   AWAITING_APPROVAL = 'awaiting_approval',
   APPROVED = 'approved',
+  RECONNECTING = 'reconnecting',
   REJECTED = 'rejected',
   DISCONNECTED = 'disconnected',
   ERROR = 'error',
@@ -60,6 +64,8 @@ export const DEFAULT_SESSION_CONFIG: SessionConfig = {
   browserHeight: 1080,
   maxSessionDurationMinutes: 480,
   containerImage: 'kasmweb/chrome:1.15.0',
+  cpuCores: 4,
+  memoryLimitMB: 4096,
 };
 
 export const KASM_VNC_PORT = 6901;

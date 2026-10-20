@@ -17,6 +17,9 @@ A two-application system that allows a remote user to control an isolated Chromi
 - **Host approval**: You explicitly approve or reject every client connection
 - **Private profile setup**: Profile import needs host permission; the host signs in before the client can connect
 - **Session-only profile data**: Disconnecting a client ends an imported-profile session and removes its workspace
+- **Connection recovery**: Display heartbeats, automatic display reload and a one-minute recovery window for the same approved client
+- **More browser capacity**: Default 4 CPU cores and 4 GB RAM, adjustable in Host Settings and saved for future launches
+- **Display quality**: Balanced, Low data and Sharper options; Refresh view preserves browser tabs
 - **One-click management**: Start/stop browser, generate invitations, disconnect clients
 
 ## Quick Start
@@ -29,7 +32,7 @@ Get the Windows EXEs from [GitHub Releases](https://github.com/RedRiotPapon/Remo
 - **Client (installed):** use **ParallelBrowser-Client-Setup.exe** for one-click installation and launch.
 - **Host:** use **ParallelBrowser-Host-Setup.exe** on the PC providing the browser. Docker Desktop is required on the host only.
 
-Leave **Connect through → Internet** selected on the Host to connect across different networks. Both apps must be updated to 1.1.0+. No Tailscale, VPN account or port forwarding is needed. The bundled Cloudflare Quick Tunnel is a best-effort preview service with no uptime guarantee; Cloudflare terminates TLS. See [internet sharing, privacy and troubleshooting](docs/internet-sharing.md). These Windows x64 builds are unsigned, so Windows may show a publisher warning.
+Leave **Connect through → Internet** selected on the Host to connect across different networks. Both apps must be updated to 1.1.1+. No Tailscale, VPN account or port forwarding is needed. The bundled Cloudflare Quick Tunnel is a best-effort preview service with no uptime guarantee; Cloudflare terminates TLS. See [internet sharing, privacy and troubleshooting](docs/internet-sharing.md). These Windows x64 builds are unsigned, so Windows may show a publisher warning.
 
 ### Prerequisites
 
@@ -75,7 +78,7 @@ Installers will be in:
 4. For a profile, click **Open private setup**, sign in yourself in that browser window, then return to Host and click **I've finished setup**. Confirm that it is ready for the client. Invitations stay blocked until you finish. You can also privately prepare a fresh browser.
 5. Click **Generate Invitation** and share the one-time code with the remote user.
 6. **Approve** or **Reject** the client's connection when prompted. Approval gives control of the prepared browser, including its signed-in websites.
-7. Continue using your PC normally. **Stop Browser** removes the temporary workspace. For imported profiles, client disconnect also ends and removes the workspace; a new session requires fresh host permission and sign-in.
+7. Continue using your PC normally. **Stop Browser** removes the temporary workspace. For imported profiles, explicit client disconnect ends and removes the workspace; a network interruption pauses access and allows the same approved client up to one minute to recover before cleanup; a new session requires fresh host permission and sign-in.
 
 Only HTTP/HTTPS bookmarks, the homepage, bookmark-bar visibility and profile display name are imported. History, extensions, autofill, saved passwords, Windows encryption keys and existing sign-in cookies are excluded. The original Chrome profile is read only. Workspace data stays inside Docker on the host PC; it is not installed as a Chrome profile on the client's PC. Explicitly downloaded files saved by the client remain on their PC. Container removal is normal application cleanup, not a promise of forensic secure erasure or deletion of data held by websites.
 
@@ -83,7 +86,11 @@ Only HTTP/HTTPS bookmarks, the homepage, bookmark-bar visibility and profile dis
 1. Open ParallelBrowser Client
 2. Enter your name and paste the invitation code
 3. Click **Connect** and wait for host approval
-4. Use the browser inside the container. Ask the host for a new invitation after disconnecting.
+4. Use the browser inside the container. Brief interruptions reconnect automatically for up to one minute. Try **Display → Low data** on a slow connection; **Refresh view** reconnects the display without reloading your website. Ask the host for a new invitation after deliberately disconnecting or when recovery expires.
+
+### Browser computing power
+
+The default workspace limit is **4 CPU cores and 4 GB RAM**, increased from 2 cores/2 GB. In Host **Settings**, choose CPU cores (1–8) and RAM (1–8 GB), then Save. Settings persist and apply to the next browser session; stop/start only when your client has finished. These are usage ceilings, not reserved physical memory. Docker must have enough available resources; startup shows a clear error before creating a workspace if the allocation is too large. More CPU/RAM can help heavy websites; it does not reduce internet relay latency.
 
 ### Client files
 

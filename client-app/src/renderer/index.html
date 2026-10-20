@@ -76,9 +76,17 @@
       <div class="browser-toolbar">
         <div class="toolbar-info">
           <span class="connection-dot connected"></span>
-          <span id="toolbar-status">Connected</span>
+          <span id="toolbar-status" role="status" aria-live="polite">Connected</span>
         </div>
         <div class="toolbar-actions">
+          <label class="display-quality" for="display-quality">Display
+            <select id="display-quality" title="Lower quality uses less bandwidth. Changing this reconnects the display and keeps your browser tabs.">
+              <option value="balanced">Balanced</option>
+              <option value="data">Low data</option>
+              <option value="sharp">Sharper</option>
+            </select>
+          </label>
+          <button id="btn-refresh-display" class="btn btn-secondary btn-small" title="Reconnect only the display. Browser tabs and work stay open.">Refresh view</button>
           <button id="btn-upload-files" class="btn btn-secondary btn-small">Upload from this PC</button>
           <button id="btn-downloads" class="btn btn-secondary btn-small">Downloads</button>
           <button id="btn-fullscreen" class="btn-icon" title="Toggle Fullscreen">

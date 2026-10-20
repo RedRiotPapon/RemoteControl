@@ -26,7 +26,10 @@ const next = (ws, type) => new Promise(resolve => {
 test('Settings preserve unlimited duration and reject invalid dimensions and image names', () => {
   assert.equal(validateSessionConfig({ maxSessionDurationMinutes: 0 }).maxSessionDurationMinutes, 0);
   for (const bad of [{ browserWidth: 799 }, { browserHeight: NaN }, { browserWidth: 900.5 },
-    { maxSessionDurationMinutes: -1 }, { containerImage: '../bad image' }]) assert.throws(() => validateSessionConfig(bad));
+    { maxSessionDurationMinutes: -1 }, { containerImage: '../bad image' },
+    { cpuCores: 0 }, { cpuCores: 9 }, { cpuCores: 1.5 }, { memoryLimitMB: 512 }, { memoryLimitMB: 8193 }]) assert.throws(() => validateSessionConfig(bad));
+  assert.equal(validateSessionConfig({}).cpuCores, 4);
+  assert.equal(validateSessionConfig({}).memoryLimitMB, 4096);
 });
 
 test('Invitation parsing rejects malformed endpoints, token types and expiry dates', () => {
@@ -95,7 +98,10 @@ test('Kasm proxy serves assets, authenticates upgrades, isolates control and rev
     const backendRequests = [];
     manager.mockServer.on('request', req => backendRequests.push({ url: req.url, auth: req.headers.authorization, cookie: req.headers.cookie, rawHeaders: req.rawHeaders }));
     backend = new WS.WebSocketServer({ server: manager.mockServer });
-    backend.on('connection', ws => ws.on('message', data => ws.send(data)));
+    backend.on('connection', (ws, request) => {
+      assert.equal(request.headers.origin, base, 'Pinned Kasm requires an Origin header on the upstream handshake');
+      ws.on('message', (data, binary) => ws.send(data, { binary }));
+    });
     control = new WS(`${base.replace('http:', 'ws:')}/control`);
     await once(control, 'open');
     let pending = next(control, MessageType.APPROVAL_PENDING);
@@ -124,6 +130,11 @@ test('Kasm proxy serves assets, authenticates upgrades, isolates control and rev
     await once(stream, 'open');
     const echo = once(stream, 'message'); stream.send('frame');
     assert.equal((await echo)[0].toString(), 'frame');
+    const bytes = Buffer.alloc(2 * 1024 * 1024, 173), binaryEcho = once(stream, 'message');
+    stream.send(bytes.subarray(0, 1048576), { binary: true, fin: false });
+    stream.send(bytes.subarray(1048576), { binary: true, fin: true });
+    const [binaryFrame, isBinary] = await binaryEcho;
+    assert.equal(isBinary, true); assert.deepEqual(binaryFrame, bytes, 'Fragmented binary display frames survive the relay');
     let heartbeatCount = 0;
     control.on('message', data => { if (parseMessage(data.toString())?.type === MessageType.HEARTBEAT) heartbeatCount++; });
     control.send(JSON.stringify(createMessage(MessageType.HEARTBEAT, {})));

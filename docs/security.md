@@ -18,8 +18,8 @@ The remote browser runs inside a Docker container (`kasmweb/chrome`), providing:
 - `--cap-drop ALL` — Drop all Linux capabilities
 - `--cap-add SYS_CHROOT,SETUID,SETGID` — Only minimum required capabilities
 - `--security-opt no-new-privileges:true` — Prevent privilege escalation
-- `--memory 2g` — Memory limit prevents DoS
-- `--cpus 2` — CPU limit prevents resource exhaustion
+- Configurable memory limit (default 4 GiB; 1–8 GiB allowed)
+- Configurable CPU ceiling (default 4 cores; 1–8 allowed); Docker capacity is checked before creation
 - No `--privileged` flag
 - No host volume mounts
 - No access to Docker socket
@@ -45,7 +45,7 @@ The Host binds port 9500 on local interfaces. HTTP/WebSocket traffic is unencryp
 
 ## Layer 4: Host Approval
 
-Even with a valid token, the host must **explicitly approve** each connection:
+Even with a valid token, the host must **explicitly approve** each new session (recovery of that approved session is described below):
 
 1. Client connects and presents token → verified
 2. Host sees approval prompt with client name
@@ -107,7 +107,7 @@ Remote input NEVER touches the host's desktop:
 
 The client chooses local upload sources and download destinations through native file dialogs. The renderer and remote guest cannot provide arbitrary local file paths to the transfer API. Remote web content receives no preload or file-transfer IPC bridge.
 
-Every approved connection gets a main-process-generated, random, non-persistent viewer partition. The main process validates both its exact partition and origin before attaching the webview. Disconnect replaces the guest element with an inactive blank viewer, revokes file access and clears the old partition's storage/cache asynchronously. Reconnecting uses a new partition and cannot reuse the old stream cookie or web state. Previously listed download filenames are cleared from the client UI. User-saved local downloads are retained.
+Every approved connection gets a main-process-generated, random, non-persistent viewer partition. The main process validates both its exact partition and origin before attaching the webview. Disconnect replaces the guest element with an inactive blank viewer, revokes file access and clears the old partition's storage/cache asynchronously. A new invitation/approval uses a new partition and cannot reuse the old stream cookie or web state. Automatic recovery within the same approved session retains its existing in-memory partition and cookie; access remains denied while control is disconnected. Previously listed download filenames are cleared from the client UI. User-saved local downloads are retained.
 
 The host's `/api/files/` routes require the current approved stream bearer credential in an Authorization header; cookies alone are insufficient and browser Origin headers are rejected. No CORS permission is granted. The host forwards only fixed upload/list/download operations to a per-workspace Python service on a separate **loopback-published** Docker port with its own random credential. Disconnect revokes the client credential and closes transfers.
 
@@ -123,9 +123,11 @@ The host profile picker reads only Chrome's profile names and IDs from the curre
 
 The host signs in through a separate viewer served by an authenticated **loopback-only** listener, with its own random credential and an ephemeral Electron storage partition. That credential cannot authorize the public client proxy. Setup revokes any previous invitation. Both invitation verification and issuance remain blocked until the host explicitly confirms setup is finished. Closing private setup alone does not unlock invitations. Completing setup revokes the private viewer before enabling invitations; the host must still approve the client's connection. An approved client can use signed-in accounts and see imported bookmarks, as disclosed by both confirmation dialogs.
 
-Imported-profile sessions end on active client disconnect, host stop/quit, or duration expiry. Stopping revokes streams, closes transfers and removes the exact owned container and its anonymous volumes. A detached cleanup helper, verified ready before data import, removes that same container after abrupt host termination. If Docker is unavailable, the helper retries when the engine returns; cleanup is not instantaneous while Docker cannot be reached. Host control WebSocket ping/pong detects an unresponsive connection after roughly 45–60 seconds and revokes access. Profile snapshots have no disk staging copy. Files the client explicitly saved to their PC and website-side account sessions are outside temporary-workspace cleanup. Container removal does not guarantee forensic secure erasure.
+Imported-profile sessions end on explicit client disconnect, host stop/quit, duration expiry, or failed network recovery after the one-minute grace window. Stopping revokes streams, closes transfers and removes the exact owned container and its anonymous volumes. A detached cleanup helper, verified ready before data import, removes that same container after abrupt host termination. If Docker is unavailable, the helper retries when the engine returns; cleanup is not instantaneous while Docker cannot be reached. Host control WebSocket ping/pong detects an unresponsive connection after roughly 45–60 seconds and immediately pauses display/file access. The same approved client has a further 60 seconds to authenticate recovery; after that its credentials are revoked and an imported-profile workspace is removed. Profile snapshots have no disk staging copy. Files the client explicitly saved to their PC and website-side account sessions are outside temporary-workspace cleanup. Container removal does not guarantee forensic secure erasure.
 
-After approval the host consumes the invitation and issues a separate random stream credential. A bootstrap URL sets an HttpOnly, SameSite=Strict cookie and redirects to the origin root. Every HTTP stream request and WebSocket upgrade requires the current cookie; foreign browser WebSocket origins are rejected. The host supplies Kasm backend Basic authentication and does not forward the stream cookie to the container. Disconnect revokes the credential and destroys active proxy sockets/requests. The bootstrap URL is a bearer credential and should not be logged or shared. LAN HTTP still requires a trusted network or VPN.
+After approval the host consumes the invitation and issues separate random 256-bit stream and resume credentials. Resume is accepted only for the existing approved session during its 60-second recovery window, never as a new invitation. Invalid credentials, expired windows and active-client replacement attempts are rejected. Explicit disconnect, Host stop, expiry and session termination clear the credential. Credentials remain in process memory and never enter persisted settings. After a dropped control connection, all current display sockets and transfer requests are closed; browser/file requests remain denied until authenticated recovery succeeds.
+
+After approval the host issues a stream credential. A bootstrap URL sets an HttpOnly, SameSite=Strict cookie and redirects to the origin root. Every HTTP stream request and WebSocket upgrade requires the current cookie; foreign browser WebSocket origins are rejected. The host supplies Kasm backend Basic authentication and does not forward the stream cookie to the container. Disconnect revokes the credential and destroys active proxy sockets/requests. The bootstrap URL is a bearer credential and should not be logged or shared. LAN HTTP still requires a trusted network or VPN.
 
 - Session tokens are generated in-memory and never written to disk
 - No credentials are stored in plaintext in source code
